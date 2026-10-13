@@ -167,11 +167,15 @@ function parsePenaltyPdf(raw){
    const candidates=[...text.matchAll(/Auto\s+da?\s+Infração\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig),...text.matchAll(/Auto\s+da?\s+Infracao\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig)].sort((a,b)=>a.index-b.index);
    multa=candidates.map(m=>clean(m[1])).find(v=>v!==origin&&v!==ait)||'';
  }
- const company=firstMatch([
-   /Nome\s*(?:\/\s*Raz[aã]o\s+Social)?\s*[:.]?\s*([A-ZÀ-Ü0-9][A-ZÀ-Ü0-9 .&/-]{2,100}?)(?=\s+(?:Placa|Marca\s*\/?\s*Modelo|Modelo|Esp[eé]cie|Esp[eé]cie\/Tipo|Categoria|Pa[ií]s|UF|Munic[ií]pio|Endere[cç]o|Auto\s+da?\s+Infração|Auto\s+da?\s+Infracao)\b)/i,
-   /Raz[aã]o\s+Social\s*[:.]?\s*([A-ZÀ-Ü0-9][A-ZÀ-Ü0-9 .&/-]{2,100}?)(?=\s+(?:Placa|Marca|Modelo|Esp[eé]cie|Categoria|Pa[ií]s|UF|Endere[cç]o)\b)/i,
-   /(CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA)/i
- ]);
+ // A empresa fica no bloco "PESSOA JURIDICA PROPRIETARIA DO VEICULO NA DATA DA INFRAÇÃO ORIGINARIA".
+ // Localiza esse cabeçalho e lê o conteúdo depois do rótulo "Nome", sem fixar uma razão social específica.
+ const companyBlockStart=upper.search(/PESSOA\s+JUR[IÍ]DICA\s+PROPRIET[AÁ]RIA\s+DO\s+VE[IÍ]CULO\s+NA\s+DATA\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i);
+ let company='';
+ if(companyBlockStart>=0){
+   const companyBlock=text.slice(companyBlockStart,companyBlockStart+900);
+   const nameMatch=companyBlock.match(/\bNome\b\s*[:.]?\s*([\s\S]{2,180}?)(?=\s+(?:Placa|Marca\s*\/?\s*Modelo|Modelo|Esp[eé]cie|Categoria|Pa[ií]s|UF|Munic[ií]pio|Endere[cç]o|Auto\s+da?\s+Infração|Auto\s+da?\s+Infracao|CPF|CNPJ)\b|$)/i);
+   if(nameMatch) company=clean(nameMatch[1]);
+ }
  const plate=firstMatch([/Placa\s*[:.]?\s*([A-Z]{3}\s?\d[A-Z0-9]\s?\d{2}|[A-Z0-9]{7})/i]).replace(/\s/g,'').toUpperCase();
  let model=firstMatch([
    /Marca\s*\/?\s*Modelo\s*[:.]?\s*(.{3,65}?)(?=\s+(?:Espécie|Especie|País|Pais|Categoria|Nome|Placa|Tipo)\b)/i,
