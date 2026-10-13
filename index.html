@@ -169,12 +169,22 @@ function parsePenaltyPdf(raw){
  }
  // A empresa fica no bloco "PESSOA JURIDICA PROPRIETARIA DO VEICULO NA DATA DA INFRAÇÃO ORIGINARIA".
  // Localiza esse cabeçalho e lê o conteúdo depois do rótulo "Nome", sem fixar uma razão social específica.
- const companyBlockStart=upper.search(/PESSOA\s+JUR[IÍ]DICA\s+PROPRIET[AÁ]RIA\s+DO\s+VE[IÍ]CULO\s+NA\s+DATA\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i);
+ const companyHeaderRe=/PESSOA\s+JUR[IÍ]DICA\s+PROPRIET[AÁ]RIA\s+DO\s+VE[IÍ]CULO\s+NA\s+DATA\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i;
+ const companyBlockStart=upper.search(companyHeaderRe);
  let company='';
  if(companyBlockStart>=0){
-   const companyBlock=text.slice(companyBlockStart,companyBlockStart+900);
-   const nameMatch=companyBlock.match(/\bNome\b\s*[:.]?\s*([\s\S]{2,180}?)(?=\s+(?:Placa|Marca\s*\/?\s*Modelo|Modelo|Esp[eé]cie|Categoria|Pa[ií]s|UF|Munic[ií]pio|Endere[cç]o|Auto\s+da?\s+Infração|Auto\s+da?\s+Infracao|CPF|CNPJ)\b|$)/i);
-   if(nameMatch) company=clean(nameMatch[1]);
+   // Procura "Nome" somente dentro do bloco de proprietário, e corta antes do próximo rótulo.
+   const companyBlock=text.slice(companyBlockStart,companyBlockStart+1400);
+   const nameLabel=/\bNome\b\s*[:.]?\s*/i;
+   const nameLabelMatch=nameLabel.exec(companyBlock);
+   if(nameLabelMatch){
+     const afterName=companyBlock.slice(nameLabelMatch.index+nameLabelMatch[0].length);
+     const nextField=/\s+(?=(?:CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF|CPF|CNPJ|Placa|Marca\s*\/?\s*Modelo|Modelo|Esp[eé]cie(?:\s*\/\s*Tipo)?|Categoria|Pa[ií]s|UF|Munic[ií]pio|Endere[cç]o|CEP|Auto\s+da?\s+Infra[cç][aã]o)\b)/i;
+     const nextFieldMatch=nextField.exec(afterName);
+     company=clean(nextFieldMatch?afterName.slice(0,nextFieldMatch.index):afterName.slice(0,180));
+     // Se a extração do PDF colocou vários campos juntos, não aceita conteúdo claramente contaminado.
+     company=company.replace(/\s+(?:CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF).*$/i,'').trim();
+   }
  }
  const plate=firstMatch([/Placa\s*[:.]?\s*([A-Z]{3}\s?\d[A-Z0-9]\s?\d{2}|[A-Z0-9]{7})/i]).replace(/\s/g,'').toUpperCase();
  let model=firstMatch([
