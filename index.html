@@ -136,9 +136,12 @@ uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.
 pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';try{if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('A biblioteca de leitura de imagens não carregou. Atualize a página e tente novamente.');const result=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo o texto da imagem… '+Math.round((m.progress||0)*100)+'%';}});parsePenaltyPdf(result.data.text);return;}if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,text:item.text};lines.push(line)}else line.text+=' '+item.text}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.text).join(' | '));}let raw=pages.join(' | ');
  if(!raw.trim())throw new Error('Não foi possível obter texto do arquivo. Verifique se o PDF está legível.');
  let found=parsePenaltyPdf(raw);
- // Se a leitura estruturada não reconhecer os campos principais, refazer a leitura visual
- // das páginas. O OCR passa a ser um fallback baseado no resultado real do parser.
- if(found<8){
+ // Os sete campos marcados nos prints são obrigatórios para considerar a leitura adequada.
+ // Não usar a contagem de qualquer texto reconhecido como indicador de sucesso.
+ const targetIds=['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento'];
+ const missingTargets=()=>targetIds.filter(id=>!document.getElementById(id)?.value.trim());
+ // Se faltar qualquer um dos sete campos destacados, refazer a leitura visual das páginas.
+ if(missingTargets().length>0){
    if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
    parseStatus.className='parse-status';
    parseStatus.textContent='Poucos campos identificados. Tentando reconhecimento visual (OCR)…';
@@ -156,9 +159,10 @@ pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput
    }
    const ocrRaw=ocrPages.join(' ');
    const ocrFound=parsePenaltyPdf(ocrRaw);
-   if(ocrFound<3){
+   const stillMissing=missingTargets();
+   if(stillMissing.length){
      parseStatus.className='parse-status error';
-     parseStatus.textContent='Não foi possível identificar campos suficientes no arquivo. Confira se a multa está legível e se corresponde ao modelo esperado.';
+     parseStatus.textContent='Não foi possível identificar todos os campos destacados. Campos não reconhecidos: '+stillMissing.map(id=>({'empresa':'Empresa','veiculo':'Veículo','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira a imagem e complete-os manualmente.';
    }
  }
  }catch(e){parseStatus.className='parse-status error';parseStatus.textContent='Não foi possível ler o PDF: '+(e&&e.message?e.message:'arquivo inválido');}});
@@ -179,8 +183,8 @@ function parsePenaltyPdf(raw){
  // N° AIT vem do rótulo exato "Auto de Infração", nunca de "Originária".
  const ait=numberAfter(/Auto\s+de\s+Infração/i) || numberAfter(/Auto\s+de\s+Infracao/i);
  const origin=firstMatch([
-   /Auto\s+da?\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
-   /Auto\s+da?\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
+   /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
+   /Auto\s+(?:de|da)\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
  ]);
  let multa='';
  const postingIndex=upper.indexOf('DATA DA POSTAGEM');
@@ -230,13 +234,13 @@ function parsePenaltyPdf(raw){
  let infDate='';
  const idxInf=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');
  const infWindow=idxInf>=0?text.slice(Math.max(0,idxInf-220),Math.min(text.length,idxInf+260)):'';
- let dm=infWindow.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/);
+ let dm=infWindow.match(/Data\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})\s+(?:Hora\s*[:.]?\s*)?(\d{2}:\d{2})(?::(\d{2}))?/i);
+ if(!dm)dm=infWindow.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/);
  if(!dm){
    const dateTimes=[...text.matchAll(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/g)];
-   // No formulário de infração, o horário costuma estar na linha da data logo após Código.
-   dm=dateTimes.find(m=>/MUNIC[IÍ]PIO DA INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-220),m.index+180)))||null;
+   dm=dateTimes.find(m=>/MUNIC[IÍ]PIO DA INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-260),m.index+220)))||null;
  }
- if(dm)infDate=dm[1]+' '+dm[2]+(dm[3]?':'+dm[3]:'');
+ if(dm)infDate=dm[1]+' - '+dm[2]+(dm[3]?':'+dm[3]:'');
  // O PDF tem dois rótulos "Data de Vencimento"; o print 7 indica o último,
  // localizado na tabela inferior junto a "Valor Integral" e "Valor com Desconto".
  const dueMatches=[...text.matchAll(/Data\s+de\s+Vencimento\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})/ig)];
