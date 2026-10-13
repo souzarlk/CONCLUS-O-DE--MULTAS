@@ -90,19 +90,6 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
   </div>
   <div class="form-heading"><div><h3>Dados para lançamento</h3><p>Confira os dados extraídos antes de usar no sistema. Campos manuais continuam editáveis.</p></div><button class="secondary-btn" id="clearForm" type="button">Limpar</button></div>
   <div class="field-grid" id="fieldsGrid">
-    <label>N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
-    <label>Tipo ocorrência <span class="field-hint">Preenchimento automático fixo</span><input id="tipoOcorrencia" value="MULTA" readonly></label>
-    <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
-    <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
-    <label>Pontos multa <span class="manual-tag">Manual</span><input id="pontosMulta" placeholder="Preencher manualmente"></label>
-    <label>N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
-    <label>Gastos com veículo <span class="manual-tag">Manual</span><input id="gastosVeiculo" placeholder="Preencher manualmente"></label>
-    <label>N° da fatura <span class="locked-tag">Automático no sistema</span><input value="Preenchido automaticamente pelo sistema" disabled></label>
-    <label>Data de vencimento <span class="field-hint">Na fatura, ao lado de “Valor com desconto”</span><input id="dataVencimento" placeholder="DD/MM/AAAA"></label>
-    <label>Pago pelo motorista <span class="manual-tag">Manual</span><input id="pagoMotorista" placeholder="Preencher manualmente"></label>
-    <label>Multa descontada <span class="manual-tag">Manual</span><input id="multaDescontada" placeholder="Preencher manualmente"></label>
-    <label>Data de desconto <span class="manual-tag">Manual</span><input id="dataDesconto" placeholder="Preencher manualmente"></label>
-    <label>Centro de custo <span class="field-hint">Ex.: CRC da Costa → FROTA CRC</span><input id="centroCusto" placeholder="Será preenchido conforme a empresa"></label>
     <label>Empresa <span class="field-hint">Campo “Nome” da multa</span><input id="empresa" placeholder="Será preenchido pelo PDF"></label>
     <label>Veículo <span class="field-hint">PLACA - MARCA/MODELO</span><input id="veiculo" placeholder="Será preenchido pelo PDF"></label>
     <label>Motorista <span class="manual-tag">Manual</span><input id="motorista" placeholder="Preencher manualmente"></label>
@@ -116,8 +103,19 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label>Prejuízo valor <span class="field-hint">Valor integral</span><input id="prejuizoValor" placeholder="R$ 0,00"></label>
     <label>Des. valor <span class="field-hint">Valor integral − valor com desconto</span><input id="descontoValor" placeholder="R$ 0,00"></label>
     <label>Valor líquido <span class="field-hint">Valor com desconto</span><input id="valorLiquido" placeholder="R$ 0,00"></label>
-  </div>
-  <div class="form-actions"><button class="secondary-btn" id="copyData" type="button">Copiar dados preenchidos</button><span id="copyStatus" role="status"></span></div>
+    <label>Tipo ocorrência <span class="field-hint">Preenchimento automático fixo</span><input id="tipoOcorrencia" value="MULTA" readonly></label>
+    <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
+    <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
+    <label>Pontos multa <span class="manual-tag">Manual</span><input id="pontosMulta" placeholder="Preencher manualmente"></label>
+    <label>N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
+    <label>N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
+    <label>Gastos com veículo <span class="manual-tag">Manual</span><input id="gastosVeiculo" placeholder="Preencher manualmente"></label>
+    <label>Data de vencimento <span class="field-hint">Na fatura, ao lado de “Valor com desconto”</span><input id="dataVencimento" placeholder="DD/MM/AAAA"></label>
+    <label>Pago pelo motorista <span class="manual-tag">Manual</span><input id="pagoMotorista" placeholder="Preencher manualmente"></label>
+    <label>Multa descontada <span class="manual-tag">Manual</span><input id="multaDescontada" placeholder="Preencher manualmente"></label>
+    <label>Data de desconto <span class="manual-tag">Manual</span><input id="dataDesconto" placeholder="Preencher manualmente"></label>
+    <label>Centro de custo <span class="field-hint">Ex.: CRC da Costa → FROTA CRC</span><input id="centroCusto" placeholder="Será preenchido conforme a empresa"></label>
+  </div>  <div class="form-actions"><button class="secondary-btn" id="copyData" type="button">Copiar dados preenchidos</button><span id="copyStatus" role="status"></span></div>
   <p class="privacy-note">A leitura acontece neste navegador. Revise os campos extraídos: PDFs diferentes podem apresentar informações em posições ou formatos distintos.</p>
 </div>
 </div>
