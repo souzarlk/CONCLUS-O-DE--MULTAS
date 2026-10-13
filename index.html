@@ -324,6 +324,15 @@ function parsePenaltyPdf(raw){
    const lowerTableDates=dueMatches.filter(m=>m.index>integralPos);
    if(lowerTableDates.length) { /* mantém a data da tabela de valores, não a data superior */ }
  }
+ // Aplicar novamente os valores após os fallbacks, para que a tela receba exatamente os dados corrigidos.
+ set('empresa',company);
+ set('numeroMulta',multa);
+ set('ait',ait);
+ set('aitOriginaria',origin);
+ set('dataInfracao',infDate);
+ set('dataVencimento',due);
+ set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
+ if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
  // O campo Veículo recebe somente a placa destacada no print 2.
  if(plate)set('veiculo',plate);
  if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/i.test(org))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
