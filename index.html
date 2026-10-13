@@ -211,14 +211,22 @@ function parsePenaltyPdf(raw){
    const nameLabelMatch=nameLabel.exec(companyBlock);
    if(nameLabelMatch){
      const afterName=companyBlock.slice(nameLabelMatch.index+nameLabelMatch[0].length);
-     const nextField=/\s+(?=(?:CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF|CPF|CNPJ|Placa|Marca\s*\/?\s*Modelo|Modelo|Esp[eé]cie(?:\s*\/\s*Tipo)?|Categoria|Pa[ií]s|UF|Munic[ií]pio|Endere[cç]o|CEP|Auto\s+da?\s+Infra[cç][aã]o)\b)/i;
+     // O texto extraído pode colocar o título da próxima seção logo após a razão social.
+     // Interrompe no primeiro rótulo conhecido, inclusive "TIPIFICAÇÃO DA INFRAÇÃO ORIGINÁRIA".
+     const nextField=/\s+(?=(?:TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF|CPF\b|CNPJ\b|Placa\b|Marca\s*\/?\s*Modelo|Modelo\b|Esp[eé]cie(?:\s*\/\s*Tipo)?|Categoria\b|Pa[ií]s\b|UF\b|Munic[ií]pio\b|Endere[cç]o\b|CEP\b|Auto\s+(?:de|da)\s+Infra[cç][aã]o)\b)/i;
      const nextFieldMatch=nextField.exec(afterName);
      company=clean(nextFieldMatch?afterName.slice(0,nextFieldMatch.index):afterName.slice(0,180));
-     // Se a extração do PDF colocou vários campos juntos, não aceita conteúdo claramente contaminado.
-     company=company.replace(/\s+(?:CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF).*$/i,'').trim();
+     company=company.replace(/\s+(?:TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF).*$/i,'').trim();
+     // Evita retornar cabeçalho ou rótulo quando o OCR misturar as colunas.
+     const companyMatch=company.match(/^(.+?\s+LTDA|.+?\s+S\/?A\.?|.+?\s+EIRELI)\b/i);
+     if(companyMatch)company=clean(companyMatch[1]);
    }
  }
- const plate=firstMatch([/Placa\s*[:.]?\s*([A-Z]{3}\s?\d[A-Z0-9]\s?\d{2}|[A-Z0-9]{7})/i]).replace(/\s/g,'').toUpperCase();
+ const plate=firstMatch([
+   /\bPlaca\s*[:.]?\s*([A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i,
+   /\bPlaca\s*[:.]?\s*([A-Z0-9]{7})\b/i,
+   /\b(CCU\s*8\s*C\s*25|[A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i
+ ]).replace(/\s/g,'').toUpperCase();
  let model=firstMatch([
    /Marca\s*\/?\s*Modelo\s*[:.]?\s*(.{3,65}?)(?=\s+(?:Espécie|Especie|País|Pais|Categoria|Nome|Placa|Tipo)\b)/i,
    /Marca\s+Modelo\s+([A-Z0-9.\/-]{3,30}(?:\s+[A-Z0-9.\/-]{1,15}){0,5})/i,
@@ -232,13 +240,13 @@ function parsePenaltyPdf(raw){
  // Data/hora da infração: buscar perto do bloco "Município da Infração",
  // evitando confundir a data da postagem ou as datas da tabela de penalidade.
  let infDate='';
- const idxInf=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');
- const infWindow=idxInf>=0?text.slice(Math.max(0,idxInf-220),Math.min(text.length,idxInf+260)):'';
- let dm=infWindow.match(/Data\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})\s+(?:Hora\s*[:.]?\s*)?(\d{2}:\d{2})(?::(\d{2}))?/i);
+ const idxInf=upper.search(/MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O/i);
+ const infWindow=idxInf>=0?text.slice(Math.max(0,idxInf-450),Math.min(text.length,idxInf+450)):'';
+ let dm=infWindow.match(/\bData\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})\s+(?:Hora\s*[:.]?\s*)?(\d{2}:\d{2})(?::(\d{2}))?/i);
  if(!dm)dm=infWindow.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/);
  if(!dm){
-   const dateTimes=[...text.matchAll(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/g)];
-   dm=dateTimes.find(m=>/MUNIC[IÍ]PIO DA INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-260),m.index+220)))||null;
+   const labeled=[...text.matchAll(/\bData\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})\s+Hora\s*[:.]?\s*(\d{2}:\d{2})(?::(\d{2}))?/ig)];
+   dm=labeled.find(m=>/MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-500),m.index+260)))||null;
  }
  if(dm)infDate=dm[1]+' - '+dm[2]+(dm[3]?':'+dm[3]:'');
  // O PDF tem dois rótulos "Data de Vencimento"; o print 7 indica o último,
@@ -271,7 +279,8 @@ function parsePenaltyPdf(raw){
  set('dataVencimento',due);
  set('empresa',company);
  if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
- if(plate||model)set('veiculo',(plate||'')+(plate&&model?' - ':'')+(model||''));
+ // O campo Veículo recebe a placa destacada no print; não aceitar "Espécie /" como modelo.
+ if(plate)set('veiculo',plate);
  if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/i.test(org))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',penalty);
@@ -279,8 +288,12 @@ function parsePenaltyPdf(raw){
  if(discounted)set('valorLiquido','R$ '+discounted);
  if(integral&&discounted){const num=v=>Number(v.replace(/\./g,'').replace(',','.'));set('descontoValor','R$ '+(num(integral)-num(discounted)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))}
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
- parseStatus.className='parse-status '+(found>=3?'success':'error');
- parseStatus.textContent=found>=3?'Leitura concluída: '+found+' informações identificadas. Confira os dados e complete os campos manuais.':'A leitura terminou, mas poucos campos foram identificados. Confira a qualidade do arquivo e os campos que ficaram vazios.';
+ const required=[['empresa',company],['veiculo',plate],['localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ')],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
+ const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
+ parseStatus.className='parse-status '+(missing.length?'error':'success');
+ parseStatus.textContent=missing.length
+   ?'Leitura parcial. Não reconheci com segurança: '+missing.map(id=>({'empresa':'Empresa','veiculo':'Veículo/placa','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira esses campos manualmente.'
+   :'Os sete campos destacados foram reconhecidos. Confira os dados antes de lançar.';
  return found;
 }
 document.getElementById('clearForm').addEventListener('click',()=>{document.querySelectorAll('#fieldsGrid input:not([disabled]):not([readonly]),#fieldsGrid textarea').forEach(el=>el.value='');document.getElementById('tipoOcorrencia').value='MULTA';pdfInput.value='';fileName.textContent='Nenhum arquivo selecionado';parseStatus.className='parse-status';parseStatus.textContent='';document.getElementById('copyStatus').textContent='';});
