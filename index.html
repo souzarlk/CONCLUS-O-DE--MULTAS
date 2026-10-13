@@ -144,7 +144,7 @@ function parsePenaltyPdf(raw){
  const extractAfter=(label,stop,max=180)=>{let v=valueAfter(label,max);if(!v)return '';for(const term of stop){const i=v.toLocaleUpperCase('pt-BR').indexOf(term.toLocaleUpperCase('pt-BR'));if(i>=0)v=v.slice(0,i)}return clean(v)};
  const firstMatch=(patterns)=>{for(const re of patterns){const m=text.match(re);if(m&&m[1])return clean(m[1])}return ''};
  const numberAfter=(labelRe,excludeOrigin=true)=>{
-   const re=new RegExp(labelRe.source+'(?!\s+Origin[aá]ria)\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{5,})','ig');
+   const re=new RegExp(labelRe.source+'(?!\\s+Origin[aá]ria)\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{5,})','ig');
    let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-45),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;const val=clean(m[1]);if(/^(?:ORIGIN|ORIGINARIA|INFRA[CÇ]AO|DATA|CODIGO)$/i.test(val))continue;return val}
    return '';
  };
@@ -168,8 +168,9 @@ function parsePenaltyPdf(raw){
    multa=candidates.map(m=>clean(m[1])).find(v=>v!==origin&&v!==ait)||'';
  }
  const company=firstMatch([
-   /Nome\s*[:.]?\s*(CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA)/i,
-   /Nome\s*[:.]?\s*([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)/i
+   /CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i,
+   /Nome\s*(?:\/\s*Raz[aã]o\s+Social)?\s*[:.]?\s*([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)/i,
+   /Raz[aã]o\s+Social\s*[:.]?\s*([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)/i
  ]);
  const plate=firstMatch([/Placa\s*[:.]?\s*([A-Z]{3}\s?\d[A-Z0-9]\s?\d{2}|[A-Z0-9]{7})/i]).replace(/\s/g,'').toUpperCase();
  let model=firstMatch([
