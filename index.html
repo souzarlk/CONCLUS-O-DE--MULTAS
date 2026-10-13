@@ -110,6 +110,7 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label>N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
     <label>N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
     <label>Gastos com veículo <span class="manual-tag">Manual</span><input id="gastosVeiculo" placeholder="Preencher manualmente"></label>
+    <label>N° da fatura <span class="field-hint">Preenchimento automático pelo sistema de destino</span><input id="numeroFatura" placeholder="O sistema preencherá automaticamente" disabled><span class="locked-tag">Não preencher manualmente nem extrair da multa.</span></label>
     <label>Data de vencimento <span class="field-hint">Na fatura, ao lado de “Valor com desconto”</span><input id="dataVencimento" placeholder="DD/MM/AAAA"></label>
     <label>Pago pelo motorista <span class="manual-tag">Manual</span><input id="pagoMotorista" placeholder="Preencher manualmente"></label>
     <label>Multa descontada <span class="manual-tag">Manual</span><input id="multaDescontada" placeholder="Preencher manualmente"></label>
@@ -134,47 +135,100 @@ const uploadBox=document.getElementById('uploadBox');
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
 pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';try{if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('A biblioteca de leitura de imagens não carregou. Atualize a página e tente novamente.');const result=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo o texto da imagem… '+Math.round((m.progress||0)*100)+'%';}});parsePenaltyPdf(result.data.text);return;}if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,text:item.text};lines.push(line)}else line.text+=' '+item.text}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.text).join(' | '));}const raw=pages.join(' | ');parsePenaltyPdf(raw);}catch(e){parseStatus.className='parse-status error';parseStatus.textContent='Não foi possível ler o PDF: '+(e&&e.message?e.message:'arquivo inválido');}});
 function parsePenaltyPdf(raw){
- const original=String(raw||'').replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
- const text=original;
+ const text=String(raw||'').replace(/[\\u00a0\\t]+/g,' ').replace(/[|]+/g,' ').replace(/\\s+/g,' ').trim();
  const upper=text.toLocaleUpperCase('pt-BR');
  const set=(id,value)=>{const el=document.getElementById(id);if(el&&value!==undefined&&value!==null&&String(value).trim())el.value=String(value).trim()};
- const clean=s=>String(s||'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
- const after=(label,max=160)=>{const i=upper.indexOf(label.toLocaleUpperCase('pt-BR'));return i<0?'':text.slice(i+label.length,i+label.length+max)};
- const match=(re,g=1)=>{const m=text.match(re);return m?clean(m[g]):''};
- const money=s=>{const m=String(s||'').match(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/);return m?m[1]:''};
- const labelValue=(label,stop,max=180)=>{const chunk=after(label,max);if(!chunk)return '';let val=chunk;for(const s of stop){const i=val.toLocaleUpperCase('pt-BR').indexOf(s.toLocaleUpperCase('pt-BR'));if(i>=0)val=val.slice(0,i)}return clean(val)};
- const ait=match(/Auto\s+de\s+Infração\s*[:.]?\s*([A-Z0-9][A-Z0-9.-]{5,})/i) || match(/Auto\s+da\s+Infração\s*[:.]?\s*([A-Z0-9][A-Z0-9.-]{5,})/i);
- const origin=match(/Auto\s+da?\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.-]{4,})/i) || match(/Auto\s+de\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.-]{4,})/i);
- let company=match(/Nome\s*[:.]?\s*(CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA)/i) || match(/Nome\s*[:.]?\s*([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)/i);
- const plate=match(/Placa\s*[:.]?\s*([A-Z]{3}\s?\d[A-Z0-9]\s?\d{2}|[A-Z0-9]{7})/i).replace(/\s/g,'').toUpperCase();
- let model=match(/Marca\s*\/?\s*Modelo\s*[:.]?\s*(.{3,55}?)(?=\s+(?:Espécie|Especie|País|Pais|Categoria|Nome)\b)/i);
- if(!model)model=match(/(M\.?\s*BENZ\/AXOR\s*2036\s*S)/i);
- const org=match(/Órgão\s+Autuador\s*[:.]?\s*(.{4,100}?)(?=\s+(?:Código\s+do\s+Órgão|Codigo\s+do\s+Orgao|Código\s+Órgão)\b)/i) || match(/(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM)/i);
- const dateTime=match(/(?:Data\s+da\s+Infração|Data\s+Hora|Data)\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})\s+(?:Hora\s*[:.]?\s*)?(\d{2}:\d{2})/i,0);
- let infDate='';let dm=text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::\d{2})?/);if(dm)infDate=dm[1]+' '+dm[2]+':00';
- // Prefer the date/time near the infraction table, not the posting or penalty date.
- const idx=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');const near=idx>=0?text.slice(idx,idx+320):'';const nearDate=near.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::\d{2})?/);
- if(nearDate)infDate=nearDate[1]+' '+nearDate[2]+':00';
- const due=match(/Data\s+de\s+Vencimento\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})/i);
- const local=match(/Local\s*\/\s*Rodovia\s*[:.]?\s*([A-Z0-9 .-]{2,35}?)(?=\s+KM\b)/i);
- const km=match(/\bKM\s*[:.]?\s*(\d{1,5})\b/i);
- const municipality=match(/Município\s+da\s+Infração\s*[:.]?\s*([A-ZÀ-Ü .'-]{2,50}?)(?=\s+(?:UF|Código|Codigo)\b)/i);
- const penalty=match(/Penalidade\s+Aplicada\s*[:.]?\s*(.{5,180}?)(?=\s+(?:Cód\.?\s*Infração|Código\s+Infração|Cod(?:igo)?\s+Infracao)\b)/i) || match(/(Multa por não identificação do condutor infrator imposta à pessoa jurídica)/i);
- const integral=money(labelValue('Valor Integral',['Valor com Desconto','Data de Vencimento','Data da Postagem'],100));
- const discounted=money(labelValue('Valor com Desconto',['Data de Vencimento','Data da Postagem','Penalidade Aplicada'],100));
- set('ait',ait);set('numeroMulta',ait);set('tipoOcorrencia','MULTA');set('dataInfracao',infDate||dateTime);
- set('aitOriginaria',origin);set('dataVencimento',due);set('empresa',company);
- if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
+ const clean=s=>String(s||'').replace(/^[\\s:;|–-]+|[\\s;|–-]+$/g,'').replace(/\\s+/g,' ').trim();
+ const money=s=>{const m=String(s||'').match(/(?:R\\$\\s*)?(\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2})/);return m?m[1]:''};
+ const valueAfter=(label,max=180)=>{const i=upper.indexOf(label.toLocaleUpperCase('pt-BR'));return i<0?'':text.slice(i+label.length,i+label.length+max)};
+ const extractAfter=(label,stop,max=180)=>{let v=valueAfter(label,max);if(!v)return '';for(const term of stop){const i=v.toLocaleUpperCase('pt-BR').indexOf(term.toLocaleUpperCase('pt-BR'));if(i>=0)v=v.slice(0,i)}return clean(v)};
+ const firstMatch=(patterns)=>{for(const re of patterns){const m=text.match(re);if(m&&m[1])return clean(m[1])}return ''};
+ const numberAfter=(labelRe,excludeOrigin=true)=>{
+   const re=new RegExp(labelRe.source+'\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})','ig');
+   let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-35),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;return clean(m[1])}
+   return '';
+ };
+ // AIT e número da multa são procurados separadamente, sem reutilizar um resultado no outro.
+ const ait=numberAfter(/Auto\\s+de\\s+Infração/i) || numberAfter(/Auto\\s+de\\s+Infracao/i);
+ const origin=firstMatch([
+   /Auto\\s+da?\\s+Infração\\s+Originária\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/i,
+   /Auto\\s+da?\\s+Infracao\\s+Originaria\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/i
+ ]);
+ let multa='';
+ const postingIndex=upper.indexOf('DATA DA POSTAGEM');
+ if(postingIndex>=0){
+   const before=text.slice(Math.max(0,postingIndex-260),postingIndex);
+   const nums=[...before.matchAll(/Auto\\s+da?\\s+Infração\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/ig)];
+   const nums2=[...before.matchAll(/Auto\\s+da?\\s+Infracao\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/ig)];
+   const all=nums.concat(nums2).sort((a,b)=>a.index-b.index);
+   if(all.length)multa=clean(all[all.length-1][1]);
+ }
+ if(!multa){
+   const candidates=[...text.matchAll(/Auto\\s+da?\\s+Infração\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/ig),...text.matchAll(/Auto\\s+da?\\s+Infracao\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})/ig)].sort((a,b)=>a.index-b.index);
+   multa=candidates.map(m=>clean(m[1])).find(v=>v!==origin&&v!==ait)||'';
+ }
+ const company=firstMatch([
+   /Nome\\s*[:.]?\\s*(CRC\\s+DA\\s+COSTA\\s+TRANSPORTES\\s+LTDA)/i,
+   /Nome\\s*[:.]?\\s*([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)/i
+ ]);
+ const plate=firstMatch([/Placa\\s*[:.]?\\s*([A-Z]{3}\\s?\\d[A-Z0-9]\\s?\\d{2}|[A-Z0-9]{7})/i]).replace(/\\s/g,'').toUpperCase();
+ let model=firstMatch([
+   /Marca\\s*\\/?\\s*Modelo\\s*[:.]?\\s*(.{3,65}?)(?=\\s+(?:Espécie|Especie|País|Pais|Categoria|Nome|Placa)\\b)/i,
+   /(M\\.?\\s*BENZ\\/AXOR\\s*2036\\s*S)/i
+ ]);
+ const org=firstMatch([
+   /Órgão\\s+Autuador\\s*[:.]?\\s*(.{4,110}?)(?=\\s+(?:Código\\s+do\\s+Órgão|Codigo\\s+do\\s+Orgao|Código\\s+Órgão)\\b)/i,
+   /(DEPARTAMENTO\\s+DE\\s+ESTRADAS\\s+DE\\s+RODAGEM)/i
+ ]);
+ // Data e horário: prioriza a data que aparece logo depois de "Código" na tabela da infração.
+ let infDate='';
+ const codeIdx=upper.indexOf('CÓDIGO');
+ const codeWindow=codeIdx>=0?text.slice(codeIdx,codeIdx+300):'';
+ let dm=codeWindow.match(/C[oó]digo\\b.{0,100}?(\\d{2}\\/\\d{2}\\/\\d{4})\\s+(\\d{2}:\\d{2})(?::(\\d{2}))?/i);
+ if(!dm){
+   const idx=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');
+   const near=idx>=0?text.slice(Math.max(0,idx-180),idx+220):'';
+   dm=near.match(/(\\d{2}\\/\\d{2}\\/\\d{4})\\s+(\\d{2}:\\d{2})(?::(\\d{2}))?/);
+ }
+ if(dm)infDate=dm[1]+' '+dm[2]+':'+(dm[3]||'00');
+ const due=firstMatch([
+   /Data\\s+de\\s+Vencimento\\s*[:.]?\\s*(\\d{2}\\/\\d{2}\\/\\d{4})/i,
+   /Data\\s+de\\s+Vencimento.{0,60}?(\\d{2}\\/\\d{2}\\/\\d{4})/i
+ ]);
+ const local=firstMatch([
+   /Local\\s*\\/\\s*Rodovia\\s*[:.]?\\s*([A-Z0-9 .-]{2,45}?)(?=\\s+KM\\b)/i,
+   /Local\\s*\\/\\s*Rodovia\\s+([A-Z0-9]{2,10}\\s*\\d{1,4})/i
+ ]);
+ const km=firstMatch([/\\bKM\\s*[:.]?\\s*(\\d{1,5})\\b/i]);
+ const municipality=firstMatch([
+   /Município\\s+da\\s+Infração\\s*[:.]?\\s*([A-ZÀ-Ü .'-]{2,50}?)(?=\\s+(?:UF|Código|Codigo)\\b)/i,
+   /Município\\s+da\\s+Infração\\s*[:.]?\\s*([A-ZÀ-Ü .'-]{2,50})/i
+ ]);
+ const penalty=firstMatch([
+   /Penalidade\\s+Aplicada\\s*[:.]?\\s*(.{5,220}?)(?=\\s+(?:Cód\\.?\\s*Infração|Código\\s+Infração|Cod(?:igo)?\\s+Infracao)\\b)/i,
+   /Penalidade\\s+Aplicada\\s*[:.]?\\s*(.{5,180}?)(?=\\s+(?:Valor Integral|Valor com Desconto|Data de Vencimento)\\b)/i,
+   /(Multa por não identificação do condutor infrator imposta à pessoa jurídica)/i
+ ]);
+ const integral=money(extractAfter('Valor Integral',['Valor com Desconto','Data de Vencimento','Data da Postagem'],120));
+ const discounted=money(extractAfter('Valor com Desconto',['Data de Vencimento','Data da Postagem','Penalidade Aplicada'],120));
+ set('ait',ait);
+ set('numeroMulta',multa);
+ set('tipoOcorrencia','MULTA');
+ set('dataInfracao',infDate);
+ set('aitOriginaria',origin);
+ set('dataVencimento',due);
+ set('empresa',company);
+ if(/CRC\\s+DA\\s+COSTA\\s+TRANSPORTES\\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
  if(plate||model)set('veiculo',(plate||'')+(plate&&model?' - ':'')+(model||''));
- if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/i.test(org))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
- set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
+ if(/DEPARTAMENTO\\s+DE\\s+ESTRADAS\\s+DE\\s+RODAGEM/i.test(org))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
+ set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',penalty);
  if(integral)set('prejuizoValor','R$ '+integral);
  if(discounted)set('valorLiquido','R$ '+discounted);
- if(integral&&discounted){const num=v=>Number(v.replace(/\./g,'').replace(',','.'));set('descontoValor','R$ '+(num(integral)-num(discounted)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))}
- const found=[ait,origin,company,plate,model,org,infDate,due,local,municipality,penalty,integral,discounted].filter(Boolean).length;
+ if(integral&&discounted){const num=v=>Number(v.replace(/\\./g,'').replace(',','.'));set('descontoValor','R$ '+(num(integral)-num(discounted)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))}
+ const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
  parseStatus.className='parse-status '+(found>=3?'success':'error');
- parseStatus.textContent=found>=3?'Leitura concluída: '+found+' campos identificados. Confira os dados extraídos e complete o que faltar.':'A leitura terminou, mas o texto reconhecido não correspondeu a campos suficientes. Tente uma imagem mais nítida ou um PDF com texto selecionável. Os campos encontrados, se houver, foram preenchidos.';
+ parseStatus.textContent=found>=3?'Leitura concluída: '+found+' informações identificadas. Confira os dados e complete os campos manuais.':'A leitura terminou, mas poucos campos foram identificados. Tente um arquivo mais nítido ou um PDF com texto selecionável; revise também os campos que ficaram vazios.';
 }
 document.getElementById('clearForm').addEventListener('click',()=>{document.querySelectorAll('#fieldsGrid input:not([disabled]):not([readonly]),#fieldsGrid textarea').forEach(el=>el.value='');document.getElementById('tipoOcorrencia').value='MULTA';pdfInput.value='';fileName.textContent='Nenhum arquivo selecionado';parseStatus.className='parse-status';parseStatus.textContent='';document.getElementById('copyStatus').textContent='';});
 document.getElementById('copyData').addEventListener('click',async()=>{const fields=[...document.querySelectorAll('#fieldsGrid label')].map(label=>{const title=label.childNodes[0].textContent.trim();const input=label.querySelector('input,textarea');return input&&!input.disabled&&input.value.trim()?title+': '+input.value.trim():null}).filter(Boolean);try{await navigator.clipboard.writeText(fields.join('\n'));document.getElementById('copyStatus').textContent='Dados copiados.'}catch(e){document.getElementById('copyStatus').textContent='Não foi possível copiar automaticamente neste navegador.'}});
