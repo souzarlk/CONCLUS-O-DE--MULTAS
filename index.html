@@ -144,7 +144,7 @@ function parsePenaltyPdf(raw){
  const extractAfter=(label,stop,max=180)=>{let v=valueAfter(label,max);if(!v)return '';for(const term of stop){const i=v.toLocaleUpperCase('pt-BR').indexOf(term.toLocaleUpperCase('pt-BR'));if(i>=0)v=v.slice(0,i)}return clean(v)};
  const firstMatch=(patterns)=>{for(const re of patterns){const m=text.match(re);if(m&&m[1])return clean(m[1])}return ''};
  const numberAfter=(labelRe,excludeOrigin=true)=>{
-   const re=new RegExp(labelRe.source+'\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})','ig');
+   const re=new RegExp(labelRe.source+'\\s*[:.]?\\s*([A-Z0-9][A-Z0-9.\\/-]{4,})','ig');
    let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-35),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;return clean(m[1])}
    return '';
  };
