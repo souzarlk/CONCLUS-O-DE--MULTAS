@@ -131,7 +131,57 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
 const pdfInput=document.getElementById('pdfInput'),choosePdf=document.getElementById('choosePdf'),fileName=document.getElementById('fileName'),parseStatus=document.getElementById('parseStatus');
 choosePdf.addEventListener('click',()=>pdfInput.click());
 pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent='Lendo o PDF e identificando os campos…';try{if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,text:item.text};lines.push(line)}else line.text+=' '+item.text}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.text).join(' | '));}const raw=pages.join(' | ');parsePenaltyPdf(raw);}catch(e){parseStatus.className='parse-status error';parseStatus.textContent='Não foi possível ler o PDF: '+(e&&e.message?e.message:'arquivo inválido');}});
-function parsePenaltyPdf(raw){const text=raw.replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();const upper=text.toLocaleUpperCase('pt-BR');const set=(id,value)=>{const el=document.getElementById(id);if(el&&value!==undefined&&value!==null&&String(value).trim())el.value=String(value).trim()};const money=s=>{if(!s)return null;const m=String(s).match(/(?:R\$\s*)?\d{1,3}(?:\.\d{3})*,\d{2}|(?:R\$\s*)?\d+,\d{2}/);return m?m[0].replace(/R\$\s*/,'').trim():null};const getBetween=(start,ends)=>{const a=upper.indexOf(start.toLocaleUpperCase('pt-BR'));if(a<0)return '';let from=a+start.length;let end=text.length;for(const label of ends){const ix=upper.indexOf(label.toLocaleUpperCase('pt-BR'),from);if(ix>=0&&ix<end)end=ix}return text.slice(from,end).replace(/^[\s:|–-]+|[\s|–-]+$/g,'').trim()};const pick=(labels,ends=[])=>{for(const label of labels){const v=getBetween(label,ends);if(v&&v.length<180)return v}return ''};const dateTime=(text.match(/\b\d{2}\/\d{2}\/\d{4}\s*(?:às?\s*)?\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||'';const dateOnly=(text.match(/\b\d{2}\/\d{2}\/\d{4}\b/)||[])[0]||'';const auto=pick(['AUTO DE INFRAÇÃO','AUTO DA INFRAÇÃO'],['DATA DA POSTAGEM','DATA DE POSTAGEM','CÓDIGO','DATA','NOME','PLACA']);const origin=pick(['AUTO DA INFRAÇÃO ORIGINÁRIA','AUTO DE INFRAÇÃO ORIGINÁRIA','AUTO DA INFRACAO ORIGINARIA'],['LIMITE REGULAMENTADO','DATA DA POSTAGEM','CÓDIGO']);const name=pick(['NOME'],['PLACA','MARCA/MODELO','ORGÃO AUTUADOR','ÓRGÃO AUTUADOR']);const placa=pick(['PLACA'],['MARCA/MODELO','MARCA / MODELO','NOME','ORGÃO AUTUADOR']);const modelo=pick(['MARCA/MODELO','MARCA / MODELO'],['ORGÃO AUTUADOR','ÓRGÃO AUTUADOR','LOCAL/RODOVIA','LOCAL / RODOVIA']);const orgao=pick(['ORGÃO AUTUADOR','ÓRGÃO AUTUADOR'],['LOCAL/RODOVIA','LOCAL / RODOVIA','CÓDIGO','AUTO DE INFRAÇÃO']);const local=pick(['LOCAL/RODOVIA','LOCAL / RODOVIA'],['KM','MUNICÍPIO DA INFRAÇÃO','MUNICIPIO DA INFRACAO','LIMITE REGULAMENTADO']);const km=pick(['KM'],['MUNICÍPIO DA INFRAÇÃO','MUNICIPIO DA INFRACAO','LIMITE REGULAMENTADO','PENALIDADE APLICADA']);const municipio=pick(['MUNICÍPIO DA INFRAÇÃO','MUNICIPIO DA INFRACAO'],['PENALIDADE APLICADA','LIMITE REGULAMENTADO','VALOR INTEGRAL']);const penalidade=pick(['PENALIDADE APLICADA'],['VALOR INTEGRAL','VALOR COM DESCONTO','DATA DA POSTAGEM','ÓRGÃO AUTUADOR']);const integral=money(pick(['VALOR INTEGRAL'],['VALOR COM DESCONTO','VALOR COM DESCONTO ATÉ','DATA DE VENCIMENTO','DATA VENCIMENTO']));const desconto=money(pick(['VALOR COM DESCONTO'],['DATA DE VENCIMENTO','DATA VENCIMENTO','DATA DA POSTAGEM','PENALIDADE APLICADA']));const vencimentoPart=pick(['DATA DE VENCIMENTO','DATA VENCIMENTO'],['VALOR INTEGRAL','VALOR COM DESCONTO','DATA DA POSTAGEM']);const vencimento=(vencimentoPart.match(/\b\d{2}\/\d{2}\/\d{4}\b/)||[])[0]||'';const codigoData=(()=>{const idx=upper.indexOf('CÓDIGO');const sub=idx>=0?text.slice(idx,idx+220):'';return (sub.match(/\b\d{2}\/\d{2}\/\d{4}\s*(?:às?\s*)?\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||dateTime})();const nMulta=(()=>{const idx=upper.indexOf('DATA DA POSTAGEM');const before=idx>=0?text.slice(Math.max(0,idx-180),idx):'';const m=before.match(/(?:AUTO\s+DA?\s+INFRAÇÃO|AUTO\s+DE\s+INFRAÇÃO)\s*[:| -]*\s*([A-Z0-9./-]{5,})/i);return m?m[1]:auto})();set('ait',auto);set('dataInfracao',codigoData);set('aitOriginaria',origin);set('dataVencimento',vencimento);set('empresa',name);set('centroCusto',/CRC DA COSTA TRANSPORTES LTDA/i.test(name)?'FROTA CRC':'');set('veiculo',placa&&modelo?placa+' - '+modelo:placa||modelo);set('fornecedor',/DEPARTAMENTO DE ESTRADAS E RODAGEM/i.test(orgao)?'DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102':'');set('numeroMulta',nMulta);set('localMulta',[local,km,municipio].filter(Boolean).join(' ').replace(/\s+/g,' '));set('historicoMulta',penalidade);set('prejuizoValor',integral?('R$ '+integral):'');set('valorLiquido',desconto?('R$ '+desconto):'');if(integral&&desconto){const num=v=>Number(v.replace(/\./g,'').replace(',','.'));const diff=num(integral)-num(desconto);set('descontoValor','R$ '+diff.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))}parseStatus.className='parse-status '+(auto||codigoData||name?'success':'error');parseStatus.textContent=(auto||codigoData||name?'Leitura concluída. ':'Não encontrei os campos principais automaticamente. ')+'Confira todos os dados; os campos manuais foram mantidos para preenchimento.';
+function parsePenaltyPdf(raw){
+ const text=raw.replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ const upper=text.toLocaleUpperCase('pt-BR');
+ const set=(id,value)=>{const el=document.getElementById(id);if(el&&value!==undefined&&value!==null&&String(value).trim())el.value=String(value).trim()};
+ const norm=s=>String(s||'').replace(/\s+/g,' ').replace(/^[\s:|–-]+|[\s|–-]+$/g,'').trim();
+ const find=(re,group=1)=>{const m=text.match(re);return m?norm(m[group]):''};
+ const money=s=>{if(!s)return '';const m=String(s).match(/\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/);return m?m[0]:''};
+ // No modelo DER, o primeiro AIT está na tabela "Indicação do órgão autuador".
+ let ait=find(/Código do Órgão[\s\S]{0,120}?Auto de Infração\s*[:|]?\s*([A-Z0-9.-]{6,})/i);
+ if(!ait) ait=find(/Auto de Infração\s+([A-Z0-9.-]{6,})\s+Data da Postagem/i);
+ if(!ait) ait=find(/Auto de Infração\s*[:|]\s*([A-Z0-9.-]{6,})/i);
+ // Em alguns PDFs, a leitura do texto pode separar o rótulo e o valor.
+ ait=ait.replace(/[\s-]/g,'');
+ const origin=find(/Auto da Infração Originária\s*[:|]?\s*([A-Z0-9.-]{5,})/i) ||
+              find(/Auto de Infração Originária\s*[:|]?\s*([A-Z0-9.-]{5,})/i);
+ const company=find(/Nome\s+([A-ZÀ-Ü][A-ZÀ-Ü .&-]{5,}?LTDA)\s+(?:Placa|Tipificação)/i) ||
+               find(/Nome\s+(.{4,80}?)\s+Placa/i);
+ const plate=find(/Placa\s+([A-Z0-9]{7})\s+UF/i);
+ const model=find(/Marca\s*\/?\s*Modelo\s+(.{3,45}?)\s+(?:Espécie\s*\/?\s*Tipo|País)/i);
+ const org=find(/Órgão Autuador\s+(.{4,90}?)\s+(?:Código do Órgão|Código Órgão)/i) ||
+            find(/Orgao Autuador\s+(.{4,90}?)\s+Código/i);
+ const infractionDate=find(/Município da Infração[\s\S]{0,150}?Data\s+(\d{2}\/\d{2}\/\d{4})\s+Hora\s+(\d{2}:\d{2})/i);
+ let dateTime=infractionDate?infractionDate.replace(/\s+/g,' ')+'': '';
+ if(infractionDate){const m=infractionDate.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})/);if(m)dateTime=m[1]+' '+m[2]+':00'}
+ if(!dateTime){const idx=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');const sub=idx>=0?text.slice(idx,idx+220):text;const m=sub.match(/\b(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})\b/);if(m)dateTime=m[1]+' '+m[2]+':00'}
+ const due=find(/Data de Vencimento\s+(\d{2}\/\d{2}\/\d{4})/i);
+ const local=find(/Local\s*\/\s*Rodovia\s+(.{2,35}?)\s+KM/i);
+ const km=find(/\bKM\s+(\d{1,5})\s+Metros/i);
+ const municipality=find(/Município da Infração\s+(.{2,50}?)\s+(?:UF|Código)/i);
+ const penalty=find(/Penalidade aplicada\s+(.{5,150}?)\s+(?:Cód\.?\s*Infração|Código Infração|Cód Infração)/i);
+ const integral=money(find(/Valor Integral\s+((?:R\$\s*)?[\d.]+,\d{2})/i));
+ const discounted=money(find(/Valor com Desconto\s+((?:R\$\s*)?[\d.]+,\d{2})/i));
+ // Avoid the "Valor 2 (duas) vezes..." amount: only use the labeled integral/discount fields.
+ set('ait',ait);
+ set('numeroMulta',ait);
+ set('tipoOcorrencia','MULTA');
+ set('dataInfracao',dateTime);
+ set('aitOriginaria',origin);
+ set('dataVencimento',due);
+ set('empresa',company);
+ if(/CRC DA COSTA TRANSPORTES LTDA/i.test(company))set('centroCusto','FROTA CRC');
+ if(plate||model)set('veiculo',(plate?plate:'')+(plate&&model?' - ':'')+(model?model:''));
+ if(/DEPARTAMENTO DE ESTRADAS DE RODAGEM/i.test(org))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
+ set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
+ set('historicoMulta',penalty);
+ if(integral)set('prejuizoValor','R$ '+integral);
+ if(discounted)set('valorLiquido','R$ '+discounted);
+ if(integral&&discounted){const num=v=>Number(v.replace(/\./g,'').replace(',','.'));const diff=num(integral)-num(discounted);set('descontoValor','R$ '+diff.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))}
+ const found=[ait,origin,company,plate,model,org,dateTime,due,local,municipality,penalty,integral,discounted].filter(Boolean).length;
+ parseStatus.className='parse-status '+(found>=5?'success':'error');
+ parseStatus.textContent=found>=5?'Leitura concluída: '+found+' campos identificados. Confira os dados antes do lançamento.':'O PDF foi lido, mas alguns campos não foram identificados com segurança. Verifique e complete manualmente os campos destacados.';
 }
 document.getElementById('clearForm').addEventListener('click',()=>{document.querySelectorAll('#fieldsGrid input:not([disabled]):not([readonly]),#fieldsGrid textarea').forEach(el=>el.value='');document.getElementById('tipoOcorrencia').value='MULTA';pdfInput.value='';fileName.textContent='Nenhum arquivo selecionado';parseStatus.className='parse-status';parseStatus.textContent='';document.getElementById('copyStatus').textContent='';});
 document.getElementById('copyData').addEventListener('click',async()=>{const fields=[...document.querySelectorAll('#fieldsGrid label')].map(label=>{const title=label.childNodes[0].textContent.trim();const input=label.querySelector('input,textarea');return input&&!input.disabled&&input.value.trim()?title+': '+input.value.trim():null}).filter(Boolean);try{await navigator.clipboard.writeText(fields.join('\n'));document.getElementById('copyStatus').textContent='Dados copiados.'}catch(e){document.getElementById('copyStatus').textContent='Não foi possível copiar automaticamente neste navegador.'}});
