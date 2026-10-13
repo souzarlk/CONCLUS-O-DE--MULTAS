@@ -217,21 +217,22 @@ function parsePenaltyPdf(raw){
    /Órgão\s+Autuador\s*[:.]?\s*(.{4,110}?)(?=\s+(?:Código\s+do\s+Órgão|Codigo\s+do\s+Orgao|Código\s+Órgão)\b)/i,
    /(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM)/i
  ]);
- // Data e horário: prioriza a data que aparece logo depois de "Código" na tabela da infração.
+ // Data/hora da infração: buscar perto do bloco "Município da Infração",
+ // evitando confundir a data da postagem ou as datas da tabela de penalidade.
  let infDate='';
- const codeIdx=upper.indexOf('CÓDIGO');
- const codeWindow=codeIdx>=0?text.slice(codeIdx,codeIdx+300):'';
- let dm=codeWindow.match(/C[oó]digo\b.{0,100}?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/i);
+ const idxInf=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');
+ const infWindow=idxInf>=0?text.slice(Math.max(0,idxInf-220),Math.min(text.length,idxInf+260)):'';
+ let dm=infWindow.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/);
  if(!dm){
-   const idx=upper.indexOf('MUNICÍPIO DA INFRAÇÃO');
-   const near=idx>=0?text.slice(Math.max(0,idx-180),idx+220):'';
-   dm=near.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/);
+   const dateTimes=[...text.matchAll(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/g)];
+   // No formulário de infração, o horário costuma estar na linha da data logo após Código.
+   dm=dateTimes.find(m=>/MUNIC[IÍ]PIO DA INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-220),m.index+180)))||null;
  }
- if(dm)infDate=dm[1]+' '+dm[2]+':'+(dm[3]||'00');
- const due=firstMatch([
-   /Data\s+de\s+Vencimento\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})/i,
-   /Data\s+de\s+Vencimento.{0,60}?(\d{2}\/\d{2}\/\d{4})/i
- ]);
+ if(dm)infDate=dm[1]+' '+dm[2]+(dm[3]?':'+dm[3]:'');
+ // O PDF tem dois rótulos "Data de Vencimento"; o print 7 indica o último,
+ // localizado na tabela inferior junto a "Valor Integral" e "Valor com Desconto".
+ const dueMatches=[...text.matchAll(/Data\s+de\s+Vencimento\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})/ig)];
+ const due=dueMatches.length?clean(dueMatches[dueMatches.length-1][1]):'';
  let local=firstMatch([
    /Local\s*\/\s*Rodovia\s*[:.]?\s*(SP\s*[-]?\s*\d{1,4})(?=\s|$)/i,
    /Local\s*\/\s*Rodovia\s*[:.]?\s*([A-Z0-9]{2,10}\s*\d{1,4})(?=\s|$)/i
