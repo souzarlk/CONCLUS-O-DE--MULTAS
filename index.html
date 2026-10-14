@@ -333,7 +333,6 @@ function parsePenaltyPdf(raw){
  set('aitOriginaria',origin);
  set('dataVencimento',due);
  set('empresa',company);
- if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
  // Fallbacks orientados pelos sete campos marcados nos prints: aceitar variações de acentuação,
  // espaços e separadores que aparecem no texto extraído do PDF/OCR.
  if(!company){
@@ -382,9 +381,8 @@ function parsePenaltyPdf(raw){
  if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
  // O campo Veículo recebe somente a placa destacada no print 2.
  if(plate)set('veiculo',plate);
- // Fornecedor fixo para o órgão destacado no documento, aceitando texto nativo/OCR com ou sem acentos.
- const orgText=upper.replace(/Ó/g,'O').replace(/Í/g,'I').replace(/É/g,'E').replace(/Ã/g,'A').replace(/Ç/g,'C');
- if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/.test(orgText))set('fornecedor','DER - DEPARTAMENTO DE ESTRADAS E RODAGENS 43052497000102');
+ // O fornecedor e o centro de custo não fazem parte dos sete blocos marcados nos prints.
+ // Não os preencher com valores fixos inferidos de uma multa anterior; manter o valor existente/manual.
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',penalty);
  if(integral)set('prejuizoValor','R$ '+integral);
