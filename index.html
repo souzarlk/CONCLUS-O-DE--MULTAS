@@ -289,34 +289,73 @@ function parsePenaltyPdf(raw){
    const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
    if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
- // Local: montar somente com rodovia, KM e município, ignorando títulos próximos.
+ // Local: ler rodovia, KM e município do mesmo bloco/tabela, sem misturar o município do veículo.
+ const sourceRows=String(raw||'').split(/[|\r\n]+/).map(row=>row.replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
  let local='',km='',municipality='';
  const roadLabel=/Local\s*\/\s*Rodovia/i.exec(text);
- const roadContext=roadLabel?text.slice(roadLabel.index,roadLabel.index+240):text;
- const roadValue=roadContext.match(/(?:Local\s*\/\s*Rodovia\s*[:.]?\s*)(SP\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)/i);
- const roadMatch=roadValue||text.match(/\b(SP\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)\b/i);
- if(roadMatch)local=clean(roadMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
- const kmLabel=/\bKM\b\s*[:.]?/i.exec(text);
- if(kmLabel){const w=text.slice(kmLabel.index+kmLabel[0].length,kmLabel.index+kmLabel[0].length+240);const m=w.match(/(?:^|[|\s:.-])(?:KM\s*)?(\d{1,5}(?:\s*\+\s*\d{1,3})?)\b/i);if(m)km=clean(m[1]).replace(/\s+/g,' ');}
- if(!km){const m=text.match(/\b(\d{3,5})\s*(?:\||\s)+KM\b/i);if(m)km=m[1];}
- const municipalityLabelMatch=/Munic[ií]pio\s+da\s+Infra[cç][aã]o/i.exec(text);
- const knownCity=/\b(CUBAT[AÃ]O|SANTOS|GUARUJ[AÁ]|PRAIA\s+GRANDE|S[AÃ]O\s+VICENTE|MONGAGU[AÁ]|BERTIOGA|ITANHA[EÉ]M|PERU[IÍ]BE|S[AÃ]O\s+PAULO)\b/i;
- if(municipalityLabelMatch){const around=text.slice(Math.max(0,municipalityLabelMatch.index-260),Math.min(text.length,municipalityLabelMatch.index+300));const city=around.match(knownCity);if(city)municipality=clean(city[1]).toLocaleUpperCase('pt-BR');if(!municipality){const after=text.slice(municipalityLabelMatch.index+municipalityLabelMatch[0].length,municipalityLabelMatch.index+municipalityLabelMatch[0].length+100);const c=after.match(/^\s*[:|.-]?\s*([A-ZÀ-Ü][A-ZÀ-Ü'-]{2,})\b/i);if(c&&!/^(?:C[ÓO]DIGO|DATA|HORA|UF|MARCA|MODELO)$/i.test(c[1]))municipality=clean(c[1]).toLocaleUpperCase('pt-BR');}}
- // Histórico: o texto pode aparecer antes do rótulo quando o PDF é lido por colunas.
- // Procurar a descrição de penalidade, nunca o cabeçalho com placa/UF/município/modelo.
+ const localLabelRow=sourceRows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
+ const nearbyLocalRows=localLabelRow>=0?sourceRows.slice(localLabelRow,localLabelRow+5):sourceRows.slice(0,5);
+ // No PDF, os títulos ficam em uma linha e os valores logo abaixo, na mesma ordem de colunas.
+ for(const row of nearbyLocalRows){
+   const fields=row.match(/^\s*([A-Z]{2}\s*\d{1,4})\s+(\d{1,5}(?:\s*\+\s*\d{1,3})?)\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\s+(.+?)\s+(?:[A-Z]{2}\s+(?:\d{3,}|\d{2}\/\d{2}\/\d{4}))/i);
+   if(fields){local=clean(fields[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');km=clean(fields[2]).replace(/\s+/g,' ');municipality=clean(fields[3]).toLocaleUpperCase('pt-BR');break;}
+ }
+ // Fallback para OCR ou variações de espaçamento: continuar restrito ao trecho da própria localização.
+ if(!local||!km||!municipality){
+   let localBlock=roadLabel?text.slice(roadLabel.index,roadLabel.index+700):'';
+   const nextBlock=/\s+(?=Auto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria\b)/i.exec(localBlock);
+   if(nextBlock)localBlock=localBlock.slice(0,nextBlock.index);
+   if(!local){const m=localBlock.match(/Local\s*\/\s*Rodovia\s*[:.]?\s*([A-Z]{2}\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)/i)||localBlock.match(/\b([A-Z]{2}\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)\b/i);if(m)local=clean(m[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');}
+   if(!km){const m=localBlock.match(/\bKm\b\s*[:.]?\s*(\d{1,5}(?:\s*\+\s*\d{1,3})?)/i);if(m)km=clean(m[1]).replace(/\s+/g,' ');}
+   if(!municipality){
+     const label=/Munic[ií]pio\s+da\s+Infra[cç][aã]o/i.exec(localBlock);
+     if(label){
+       const after=localBlock.slice(label.index+label[0].length);
+       const city=after.match(/^\s*[:|.-]?\s*([A-ZÀ-Ü][A-ZÀ-Ü'’ -]{2,}?)(?=\s+(?:UF\b|C[oó]digo\b|Data\b|Hora\b|Valor\b|Auto\s+(?:de|da)\s+Infra[cç][aã]o\b)|$)/i);
+       if(city&&!/^(?:C[oó]digo|Data|Hora|UF|Marca|Modelo)$/i.test(clean(city[1])))municipality=clean(city[1]).toLocaleUpperCase('pt-BR');
+     }
+   }
+ }
+ // Histórico: usar a linha de valores que corresponde ao rótulo "Penalidade aplicada".
+ // O cabeçalho "TIPIFICAÇÃO DA PENALIDADE APLICADA" e o texto informativo do rodapé não são o valor.
  let penalty='';
- const penaltyLabelMatch=/Penalidade\s+Aplicada/i.exec(text);
- if(penaltyLabelMatch){
-   const start=penaltyLabelMatch.index;
-   const around=text.slice(Math.max(0,start-320),Math.min(text.length,start+500));
-   const legal=around.match(/(?:MULTA\s+POR\s+N[ÃA]O\s+IDENT\.?\s*COND\.?\s*INFRATOR\s+IMPOSTA\s+[ÀA]\s+PESSOA\s+JUR[IÍ]DICA|MULTA\s+POR\s+N[ÃA]O\s+IDENTIFICA[CÇ][ÃA]O\s+DO\s+CONDUTOR\s+INFRATOR\s+IMPOSTA\s+[ÀA]\s+PESSOA\s+JUR[IÍ]DICA)/i);
-   if(legal)penalty=clean(legal[0]);
-   if(!penalty){
-     let penaltyChunk=text.slice(start+penaltyLabelMatch[0].length,start+penaltyLabelMatch[0].length+260);
-     const stop=/\s+(?=(?:C[oó]d(?:igo)?\.?\s*Infra[cç][aã]o|Valor\s+Integral|Valor\s+com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem)\b)/i.exec(penaltyChunk);
-     if(stop)penaltyChunk=penaltyChunk.slice(0,stop.index);
-     penaltyChunk=clean(penaltyChunk);
-     if(penaltyChunk && !/^(?:Placa|UF|Munic[ií]pio|Marca|Modelo|Esp[eé]cie|Tipo|Pa[ií]s)\b/i.test(penaltyChunk))penalty=penaltyChunk;
+ const penaltyHeaderRows=[];
+ for(let i=0;i<sourceRows.length;i++){
+   if(/\bPenalidade\s+Aplicada\b/i.test(sourceRows[i])&&!/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i.test(sourceRows[i])&&!/que\s+a\s+penalidade\s+aplicada/i.test(sourceRows[i]))penaltyHeaderRows.push(i);
+ }
+ const extractPenaltyValue=(row)=>{
+   let value=clean(row);
+   // O texto dessa coluna termina antes do valor da coluna vizinha "Cód. Infração".
+   const code=value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i);
+   if(code>0)value=value.slice(0,code);
+   else{
+     const stop=/\s+(?=(?:Base\s+Legal|C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Desdob\.?|Dt\.?\s+Lim|Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral|Data\s+de\s+Vencimento)\b)/i.exec(value);
+     if(stop)value=value.slice(0,stop.index);
+   }
+   value=clean(value);
+   if(!value||value.length<5||/^(?:Placa|UF|Munic[ií]pio|Marca|Modelo|Esp[eé]cie|Tipo|Pa[ií]s|C[oó]digo|Desdob\.?|Data|Hora|Base Legal)\b/i.test(value))return '';
+   return value;
+ };
+ for(const index of penaltyHeaderRows){
+   const candidate=extractPenaltyValue(sourceRows[index+1]||'');
+   if(candidate&&/\p{L}{3}/u.test(candidate)&&!/^(?:tem\s+o\s+valor|foi\s+aplicada|ser[aá]\s+aplicada)\b/i.test(candidate)){penalty=candidate;break;}
+ }
+ // Fallback para OCR que não separa as colunas em linhas: localizar a descrição após o rótulo,
+ // sem fixar o texto da infração, e cortar antes do código da coluna seguinte.
+ if(!penalty){
+   const penaltyLabelMatches=[...text.matchAll(/\bPenalidade\s+Aplicada\b/ig)];
+   for(const match of penaltyLabelMatches){
+     const before=text.slice(Math.max(0,match.index-55),match.index);
+     if(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$/i.test(before)||/que\s+a\s*$/i.test(before))continue;
+     const nearby=text.slice(match.index+match[0].length,match.index+match[0].length+480);
+     const description=nearby.match(/\bMULTA\b[\s\S]{0,300}/i);
+     if(description){
+       let value=description[0];
+       const stops=[value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i),value.search(/\s+Base\s+Legal\b/i),value.search(/\s+(?:Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)].filter(pos=>pos>0);
+       if(stops.length)value=value.slice(0,Math.min(...stops));
+       value=clean(value);
+       if(value.length>=5){penalty=value;break;}
+     }
    }
  }
  // O PDF pode separar os rótulos e os valores em colunas.
