@@ -293,7 +293,7 @@ function parsePenaltyPdf(raw){
    const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
    if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
- // Local: extrair rodovia, KM e município como uma sequência do mesmo bloco de infração.
+ // Local: extrair rodovia, KM e município da linha de valores da seção "Local / Rodovia".
  let local='',km='',municipality='';
  const roadLabel=/Local\s*\/\s*Rodovia/i.exec(text);
  const localStart=roadLabel?roadLabel.index:upper.indexOf('LOCAL / RODOVIA');
@@ -303,16 +303,25 @@ function parsePenaltyPdf(raw){
    if(nextSection)localEnd=localStart+20+nextSection.index;
  }
  const localContext=localStart>=0?text.slice(localStart,localEnd>localStart?localEnd:Math.min(text.length,localStart+1500)):'';
- // A tabela apresenta: rodovia, KM, metros, sentido, município, UF, código e data.
- // Procurar a sequência de valores, sem depender da posição exata dos títulos/colunas.
- const locationSequence=/\b(SP\s*\d{1,4})\s+(\d{1,5}(?:\s*\+\s*\d{1,3})?)\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\s+([A-ZÀ-Ü][A-ZÀ-Ü'’ -]*?)\s+[A-Z]{2}\s+\d{3,}\s+\d{2}[\/.]\d{2}[\/.]\d{4}\b/i;
- const locationMatch=localContext.match(locationSequence);
+ // A linha de valores segue: rodovia, KM, metros, sentido, município da infração, UF e código.
+ // Ler sourceRows antes da junção geral evita confundir o município do veículo (ex.: SANTOS).
+ const stateCode='(?:AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)';
+ const locationSequence=new RegExp('\\b(SP\\s*\\d{1,4})\\s+(\\d{1,5}(?:\\s*\\+\\s*\\d{1,3})?)\\s+\\d{1,5}\\s+(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'\\s+\\d{3,}\\b','i');
+ const locationHeaderIndex=sourceRows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
+ let locationMatch=null;
+ const locationScanStart=locationHeaderIndex>=0?locationHeaderIndex:0;
+ const locationScanEnd=Math.min(sourceRows.length,locationScanStart+12);
+ for(let i=locationScanStart;i<locationScanEnd&&!locationMatch;i++){
+   const combined=sourceRows.slice(i,Math.min(sourceRows.length,i+3)).join(' ');
+   locationMatch=combined.match(locationSequence);
+ }
+ if(!locationMatch&&localContext)locationMatch=localContext.match(locationSequence);
  if(locationMatch){
    local=clean(locationMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
    km=clean(locationMatch[2]).replace(/\s+/g,' ');
    municipality=clean(locationMatch[3]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
  }
- // Fallback para OCR com algum campo parcialmente reconhecido, sempre dentro da localização.
+ // Fallbacks parciais permanecem limitados à seção da própria localização.
  if(!local&&localContext){
    const m=localContext.match(/\b(SP\s*\d{1,4})\b/i);
    if(m)local=clean(m[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
@@ -322,12 +331,9 @@ function parsePenaltyPdf(raw){
    if(m)km=clean(m[1]);
  }
  if(!municipality&&localContext){
-   const direction=/\b(?:NORTE|SUL|LESTE|OESTE)\b/i.exec(localContext);
-   if(direction){
-     const afterDirection=localContext.slice(direction.index+direction[0].length);
-     const city=afterDirection.match(/^\s+([A-ZÀ-Ü][A-ZÀ-Ü'’ -]*?)\s+[A-Z]{2}\s+\d{3,}\b/i);
-     if(city)municipality=clean(city[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
-   }
+   const afterDirectionRe=new RegExp('\\b(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'\\s+\\d{3,}\\b','i');
+   const afterDirection=localContext.match(afterDirectionRe);
+   if(afterDirection)municipality=clean(afterDirection[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
  }
  // Histórico: ler a linha de valores abaixo de "Penalidade aplicada", ignorando o título da seção e o rodapé.
  let penalty='';
@@ -422,6 +428,9 @@ function parsePenaltyPdf(raw){
  // AIT principal, AIT originária e tabela inferior (vencimento, valor integral e valor com desconto).
  // Aplicar novamente os valores após os fallbacks, para que a tela receba exatamente os dados corrigidos.
  set('empresa',company);
+ // Comportamento original: CRC da Costa Transportes Ltda. -> FROTA CRC.
+ // Recalcular em cada leitura a partir da empresa reconhecida no PDF.
+ set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company)?'FROTA CRC':'');
  set('numeroMulta',multa);
  set('ait',ait);
  set('aitOriginaria',origin);
