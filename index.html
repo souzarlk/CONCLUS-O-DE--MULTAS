@@ -384,13 +384,7 @@ function parsePenaltyPdf(raw){
    const m=text.match(/\bAuto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
    if(m)origin=clean(m[1]);
  }
- // A data correta do print 7 é a que fica na tabela inferior, após Valor Integral.
- if(dueMatches.length){
-   // A data da tabela inferior é a última data de vencimento identificada no texto do PDF.
-   const integralPos=upper.lastIndexOf('VALOR INTEGRAL');
-   const lowerTableDates=integralPos>=0?dueMatches.filter(m=>m.index>integralPos):[];
-   due=clean((lowerTableDates.length?lowerTableDates[lowerTableDates.length-1]:dueMatches[dueMatches.length-1])[1]);
- }
+ // O vencimento já foi selecionado acima pela data rotulada na tabela inferior.
  // Importante: não fixar AIT, vencimento ou valores monetários.
  // Cada documento deve fornecer esses dados a partir dos rótulos e blocos próprios da multa:
  // AIT principal, AIT originária e tabela inferior (vencimento, valor integral e valor com desconto).
