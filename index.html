@@ -376,11 +376,65 @@ function parsePenaltyPdf(raw){
      if(companyMatch)company=clean(companyMatch[1]);
    }
  }
- let plate=firstMatch([
-   /\bPlaca\s*[:.]?\s*([A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i,
-   /\bPlaca\s*[:.]?\s*([A-Z0-9]{7})\b/i,
-   /\b(CCU\s*8\s*C\s*25|[A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i
- ]).replace(/\s/g,'').toUpperCase();
+ // Leitura específica da placa. O OCR pode separar caracteres, trocar letras visualmente parecidas
+ // com números ou não reconhecer o rótulo "Placa".
+ const fixLetter=ch=>({'0':'O','1':'I','2':'Z','5':'S','6':'G','8':'B'}[ch]||ch);
+ const fixDigit=ch=>({O:'0',Q:'0',D:'0',I:'1',L:'1',Z:'2',S:'5',G:'6',B:'8'}[ch]||ch);
+ const normalizeOcrPlate=value=>{
+   const compact=String(value||'').toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+   if(compact.length!==7)return '';
+   const chars=[...compact];
+   if(/^[A-Z]{3}\d[A-Z]\d{2}$/.test(compact))return compact;
+   if(/^[A-Z]{3}\d{4}$/.test(compact))return compact;
+   const antigo=chars.map((ch,i)=>i<3?fixLetter(ch):fixDigit(ch)).join('');
+   if(/^[A-Z]{3}\d{4}$/.test(antigo))return antigo;
+   const mercosul=chars.map((ch,i)=>[0,1,2,4].includes(i)?fixLetter(ch):fixDigit(ch)).join('');
+   if(/^[A-Z]{3}\d[A-Z]\d{2}$/.test(mercosul))return mercosul;
+   return '';
+ };
+ const findPlateInRegion=region=>{
+   const tokens=String(region||'').toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').match(/[A-Z0-9]+/g)||[];
+   for(let i=0;i<tokens.length;i++){
+     if(tokens[i].length>7)continue;
+     let combined='';
+     for(let j=i;j<tokens.length&&j<i+7;j++){
+       if(tokens[j].length>7)break;
+       combined+=tokens[j];
+       if(combined.length===7){
+         const candidate=normalizeOcrPlate(combined);
+         if(candidate)return candidate;
+         break;
+       }
+       if(combined.length>7)break;
+     }
+   }
+   return '';
+ };
+ let plate='';
+ const plateLabel=/\bP[l1I|!]a[cç]a\b/ig;
+ let plateLabelMatch;
+ const plateRegions=[];
+ while((plateLabelMatch=plateLabel.exec(text))!==null){
+   const start=plateLabelMatch.index;
+   plateRegions.push(text.slice(start,Math.min(text.length,start+220)));
+ }
+ const labelRowIndexes=sourceRows.map((row,index)=>/\bP[l1I|!]a[cç]a\b/i.test(row)?index:-1).filter(index=>index>=0);
+ for(const index of labelRowIndexes){
+   plate=findPlateInRegion(sourceRows.slice(index,Math.min(sourceRows.length,index+5)).join(' '));
+   if(!plate)plate=findPlateInRegion(sourceRows.slice(Math.max(0,index-1),Math.min(sourceRows.length,index+5)).join(' '));
+   if(plate)break;
+ }
+ if(!plate){
+   for(const region of plateRegions){
+     plate=findPlateInRegion(region);
+     if(plate)break;
+   }
+ }
+ if(!plate){
+   const vehicleAnchor=/(?:Marca\s*\/?\s*Modelo|Esp[eé]cie\s*\/?\s*Tipo|Categoria)\b/i.exec(text);
+   if(vehicleAnchor)plate=findPlateInRegion(text.slice(Math.max(0,vehicleAnchor.index-180),Math.min(text.length,vehicleAnchor.index+260)));
+ }
+ if(!plate)plate=findPlateInRegion(text);
  let model=firstMatch([
    /Marca\s*\/?\s*Modelo\s*[:.]?\s*(.{3,65}?)(?=\s+(?:Espécie|Especie|País|Pais|Categoria|Nome|Placa|Tipo)\b)/i,
    /Marca\s+Modelo\s+([A-Z0-9.\/-]{3,30}(?:\s+[A-Z0-9.\/-]{1,15}){0,5})/i,
