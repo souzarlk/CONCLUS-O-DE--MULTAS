@@ -343,6 +343,29 @@ function parsePenaltyPdf(raw){
      if(candidate&&!/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[ÍI]PIO)$/i.test(candidate))municipality=candidate;
    }
  }
+ // Fallback explícito para o município marcado no documento.
+ // Alguns PDFs distribuem as células da tabela em várias linhas e a regex da linha completa falha.
+ // Neste caso, procura o nome da cidade nas linhas próximas ao cabeçalho "Local / Rodovia".
+ if(!municipality){
+   const localityRows=locationHeaderIndex>=0
+     ?sourceRows.slice(locationHeaderIndex,Math.min(sourceRows.length,locationHeaderIndex+18))
+     :[];
+   const localitySearch=(localityRows.join(' ')+' '+localContext).toLocaleUpperCase('pt-BR');
+   const cityPatterns=[
+     [/\bCUBAT[AÃ]O\b/,'CUBATÃO'],
+     [/\bSANTOS\b/,'SANTOS'],
+     [/\bGUARUJ[AÁ]\b/,'GUARUJÁ'],
+     [/\bPRAIA\s+GRANDE\b/,'PRAIA GRANDE'],
+     [/\bS[AÃ]O\s+VICENTE\b/,'SÃO VICENTE'],
+     [/\bMONGAGU[AÁ]\b/,'MONGAGUÁ'],
+     [/\bBERTIOGA\b/,'BERTIOGA'],
+     [/\bITANHA[EÉ]M\b/,'ITANHAÉM'],
+     [/\bPERU[IÍ]BE\b/,'PERUÍBE'],
+     [/\bS[AÃ]O\s+PAULO\b/,'SÃO PAULO']
+   ];
+   const hits=cityPatterns.map(([pattern,name])=>({index:localitySearch.search(pattern),name})).filter(hit=>hit.index>=0).sort((a,b)=>a.index-b.index);
+   if(hits.length)municipality=hits[0].name;
+ }
  if(!municipality&&localContext){
    // Último fallback, também limitado à seção da localização da infração.
    const afterDirectionRe=new RegExp('\\b(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'(?:\\s+\\d{3,})?\\b','i');
