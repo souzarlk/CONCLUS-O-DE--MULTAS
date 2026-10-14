@@ -141,6 +141,8 @@ pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput
  const targetIds=['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const missingTargets=()=>{
    const missing=targetIds.filter(id=>!document.getElementById(id)?.value.trim());
+   const locationValue=document.getElementById('localMulta')?.value.trim()||'';
+   if(!/\bKM\s+\d{1,5}\b/i.test(locationValue)||locationValue.trim().split(/\s+/).length<5){if(!missing.includes('localMulta'))missing.push('localMulta');}
    // Só exigir fornecedor quando o próprio documento indicar o DER.
    const source=(document.getElementById('parseStatus')?.textContent||'')+' '+raw;
    if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/i.test(source)&&!document.getElementById('fornecedor')?.value.trim())missing.push('fornecedor');
@@ -289,50 +291,62 @@ function parsePenaltyPdf(raw){
    const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
    if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
- // Local: ler rodovia, KM e município do mesmo bloco/tabela, sem misturar o município do veículo.
- const sourceRows=String(raw||'').split(/[|\r\n]+/).map(row=>row.replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+ // Local: extrair rodovia, KM e município como uma sequência do mesmo bloco de infração.
  let local='',km='',municipality='';
  const roadLabel=/Local\s*\/\s*Rodovia/i.exec(text);
- const localLabelRow=sourceRows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
- const nearbyLocalRows=localLabelRow>=0?sourceRows.slice(localLabelRow,localLabelRow+5):sourceRows.slice(0,5);
- // No PDF, os títulos ficam em uma linha e os valores logo abaixo, na mesma ordem de colunas.
- for(const row of nearbyLocalRows){
-   const fields=row.match(/^\s*([A-Z]{2}\s*\d{1,4})\s+(\d{1,5}(?:\s*\+\s*\d{1,3})?)\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\s+(.+?)\s+(?:[A-Z]{2}\s+(?:\d{3,}|\d{2}\/\d{2}\/\d{4}))/i);
-   if(fields){local=clean(fields[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');km=clean(fields[2]).replace(/\s+/g,' ');municipality=clean(fields[3]).toLocaleUpperCase('pt-BR');break;}
+ const localStart=roadLabel?roadLabel.index:upper.indexOf('LOCAL / RODOVIA');
+ let localEnd=-1;
+ if(localStart>=0){
+   const nextSection=/Auto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria/i.exec(text.slice(localStart+20));
+   if(nextSection)localEnd=localStart+20+nextSection.index;
  }
- // Fallback para OCR ou variações de espaçamento: continuar restrito ao trecho da própria localização.
- if(!local||!km||!municipality){
-   let localBlock=roadLabel?text.slice(roadLabel.index,roadLabel.index+700):'';
-   const nextBlock=/\s+(?=Auto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria\b)/i.exec(localBlock);
-   if(nextBlock)localBlock=localBlock.slice(0,nextBlock.index);
-   if(!local){const m=localBlock.match(/Local\s*\/\s*Rodovia\s*[:.]?\s*([A-Z]{2}\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)/i)||localBlock.match(/\b([A-Z]{2}\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)\b/i);if(m)local=clean(m[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');}
-   if(!km){const m=localBlock.match(/\bKm\b\s*[:.]?\s*(\d{1,5}(?:\s*\+\s*\d{1,3})?)/i);if(m)km=clean(m[1]).replace(/\s+/g,' ');}
-   if(!municipality){
-     const label=/Munic[ií]pio\s+da\s+Infra[cç][aã]o/i.exec(localBlock);
-     if(label){
-       const after=localBlock.slice(label.index+label[0].length);
-       const city=after.match(/^\s*[:|.-]?\s*([A-ZÀ-Ü][A-ZÀ-Ü'’ -]{2,}?)(?=\s+(?:UF\b|C[oó]digo\b|Data\b|Hora\b|Valor\b|Auto\s+(?:de|da)\s+Infra[cç][aã]o\b)|$)/i);
-       if(city&&!/^(?:C[oó]digo|Data|Hora|UF|Marca|Modelo)$/i.test(clean(city[1])))municipality=clean(city[1]).toLocaleUpperCase('pt-BR');
-     }
+ const localContext=localStart>=0?text.slice(localStart,localEnd>localStart?localEnd:Math.min(text.length,localStart+1500)):'';
+ // A tabela apresenta: rodovia, KM, metros, sentido, município, UF, código e data.
+ // Procurar a sequência de valores, sem depender da posição exata dos títulos/colunas.
+ const locationSequence=/\b(SP\s*\d{1,4})\s+(\d{1,5}(?:\s*\+\s*\d{1,3})?)\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\s+([A-ZÀ-Ü][A-ZÀ-Ü'’ -]*?)\s+[A-Z]{2}\s+\d{3,}\s+\d{2}[\/.]\d{2}[\/.]\d{4}\b/i;
+ const locationMatch=localContext.match(locationSequence);
+ if(locationMatch){
+   local=clean(locationMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+   km=clean(locationMatch[2]).replace(/\s+/g,' ');
+   municipality=clean(locationMatch[3]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+ }
+ // Fallback para OCR com algum campo parcialmente reconhecido, sempre dentro da localização.
+ if(!local&&localContext){
+   const m=localContext.match(/\b(SP\s*\d{1,4})\b/i);
+   if(m)local=clean(m[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+ }
+ if(!km&&localContext){
+   const m=localContext.match(/\bSP\s*\d{1,4}\s+(\d{1,5})\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\b/i);
+   if(m)km=clean(m[1]);
+ }
+ if(!municipality&&localContext){
+   const direction=/\b(?:NORTE|SUL|LESTE|OESTE)\b/i.exec(localContext);
+   if(direction){
+     const afterDirection=localContext.slice(direction.index+direction[0].length);
+     const city=afterDirection.match(/^\s+([A-ZÀ-Ü][A-ZÀ-Ü'’ -]*?)\s+[A-Z]{2}\s+\d{3,}\b/i);
+     if(city)municipality=clean(city[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
    }
  }
- // Histórico: usar a linha de valores que corresponde ao rótulo "Penalidade aplicada".
- // O cabeçalho "TIPIFICAÇÃO DA PENALIDADE APLICADA" e o texto informativo do rodapé não são o valor.
+ // Histórico: ler a linha de valores abaixo de "Penalidade aplicada", ignorando o título da seção e o rodapé.
  let penalty='';
  const penaltyHeaderRows=[];
  for(let i=0;i<sourceRows.length;i++){
    if(/\bPenalidade\s+Aplicada\b/i.test(sourceRows[i])&&!/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i.test(sourceRows[i])&&!/que\s+a\s+penalidade\s+aplicada/i.test(sourceRows[i]))penaltyHeaderRows.push(i);
  }
+ const normalizePenalty=value=>clean(value)
+   // Corrige confusão típica de OCR nesse rótulo, sem fixar a descrição de todas as multas.
+   .replace(/\bN[ÃA]O\s+INDENT\.?\s*,?\s*COND\b/ig,'NÃO IDENT. COND')
+   .replace(/\bN[ÃA]O\s+IDENT\.?\s*,\s*COND\b/ig,'NÃO IDENT. COND')
+   .replace(/\bINDENT\.?\s*,\s*COND\b/ig,'IDENT. COND');
  const extractPenaltyValue=(row)=>{
    let value=clean(row);
-   // O texto dessa coluna termina antes do valor da coluna vizinha "Cód. Infração".
    const code=value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i);
    if(code>0)value=value.slice(0,code);
    else{
      const stop=/\s+(?=(?:Base\s+Legal|C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Desdob\.?|Dt\.?\s+Lim|Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral|Data\s+de\s+Vencimento)\b)/i.exec(value);
      if(stop)value=value.slice(0,stop.index);
    }
-   value=clean(value);
+   value=normalizePenalty(value);
    if(!value||value.length<5||/^(?:Placa|UF|Munic[ií]pio|Marca|Modelo|Esp[eé]cie|Tipo|Pa[ií]s|C[oó]digo|Desdob\.?|Data|Hora|Base Legal)\b/i.test(value))return '';
    return value;
  };
@@ -340,20 +354,19 @@ function parsePenaltyPdf(raw){
    const candidate=extractPenaltyValue(sourceRows[index+1]||'');
    if(candidate&&/\p{L}{3}/u.test(candidate)&&!/^(?:tem\s+o\s+valor|foi\s+aplicada|ser[aá]\s+aplicada)\b/i.test(candidate)){penalty=candidate;break;}
  }
- // Fallback para OCR que não separa as colunas em linhas: localizar a descrição após o rótulo,
- // sem fixar o texto da infração, e cortar antes do código da coluna seguinte.
+ // Fallback para texto linearizado: capturar descrição associada ao título, sem fixar o tipo da infração.
  if(!penalty){
    const penaltyLabelMatches=[...text.matchAll(/\bPenalidade\s+Aplicada\b/ig)];
    for(const match of penaltyLabelMatches){
-     const before=text.slice(Math.max(0,match.index-55),match.index);
-     if(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$/i.test(before)||/que\s+a\s*$/i.test(before))continue;
-     const nearby=text.slice(match.index+match[0].length,match.index+match[0].length+480);
-     const description=nearby.match(/\bMULTA\b[\s\S]{0,300}/i);
+     const before=text.slice(Math.max(0,match.index-75),match.index);
+     if(/TIPIFICA[CÇ][AÃ]O\s+DA[\s\S]{0,35}$/i.test(before)||/que\s+a\s*$/i.test(before))continue;
+     const nearby=text.slice(match.index+match[0].length,match.index+match[0].length+650);
+     const description=nearby.match(/\bMULTA\b[\s\S]{0,400}/i);
      if(description){
        let value=description[0];
        const stops=[value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i),value.search(/\s+Base\s+Legal\b/i),value.search(/\s+(?:Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)].filter(pos=>pos>0);
        if(stops.length)value=value.slice(0,Math.min(...stops));
-       value=clean(value);
+       value=normalizePenalty(value);
        if(value.length>=5){penalty=value;break;}
      }
    }
@@ -428,7 +441,7 @@ function parsePenaltyPdf(raw){
  if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
 
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
- const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ')],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
+ const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['localMulta',local&&km&&municipality?[local,'KM '+km,municipality].join(' '):''],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
  parseStatus.className='parse-status '+(missing.length?'error':'success');
  parseStatus.textContent=missing.length
