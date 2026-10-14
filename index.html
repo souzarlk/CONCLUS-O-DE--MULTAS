@@ -41,25 +41,6 @@ body[data-theme="light"] .theme-toggle{color:#282a31;background:#ffffffd9;border
 body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
 @keyframes appear{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@media(max-width:650px){.screen{padding:25px 13px}.brand{margin-bottom:16px}.brand img{width:160px}.card{border-radius:19px;padding:25px 17px}.intro{font-size:13px;margin-bottom:24px}.types{grid-template-columns:1fr;gap:10px}.type{min-height:auto;display:grid;grid-template-columns:42px 1fr;column-gap:13px;align-items:center;padding:14px}.type-icon{grid-row:span 2;margin:0}.type h2{margin:0 0 8px}.status{align-self:start}.section-title{align-items:flex-start;flex-direction:column;gap:5px}.footnote{align-items:flex-start;line-height:1.5}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 
-/* Registro permanente do mapeamento de extração */
-.mapping-guide{margin-top:20px;border:1px solid var(--line);border-radius:14px;background:#ffffff05;overflow:hidden}
-.mapping-guide>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;font-size:13px;font-weight:800;color:inherit}
-.mapping-guide>summary::-webkit-details-marker{display:none}
-.mapping-guide>summary:after{content:'+';font-size:20px;line-height:1;color:#ff626b}
-.mapping-guide[open]>summary:after{content:'−'}
-.mapping-guide .mapping-intro{margin:0 0 14px;color:var(--muted);font-size:12px;line-height:1.65}
-.mapping-guide .mapping-body{border-top:1px solid var(--line);padding:16px}
-.mapping-guide .mapping-table-wrap{max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:10px}
-.mapping-guide table{width:100%;min-width:720px;border-collapse:collapse;font-size:11px;line-height:1.55}
-.mapping-guide th,.mapping-guide td{padding:10px 11px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
-.mapping-guide th{background:#e3061315;color:#ff7b83;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
-.mapping-guide tr:last-child td{border-bottom:0}
-.mapping-guide .mapping-section-title{margin:18px 0 8px;font-size:12px;font-weight:800}
-.mapping-guide .mapping-rule-list{margin:0;padding-left:18px;color:var(--muted);font-size:11px;line-height:1.7}
-.mapping-guide .mapping-doc-link{display:inline-block;margin-top:15px;color:#ff7b83;font-size:12px;font-weight:750;text-decoration:underline}
-body[data-theme="light"] .mapping-guide{background:#fff;border-color:#d7d9e0}
-body[data-theme="light"] .mapping-guide .mapping-intro,body[data-theme="light"] .mapping-guide .mapping-rule-list{color:#696c75}
-body[data-theme="light"] .mapping-guide th{background:#fff0f1;color:#b8000b}
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}</script>
@@ -139,54 +120,7 @@ body[data-theme="light"] .mapping-guide th{background:#fff0f1;color:#b8000b}
     <label>Centro de custo <span class="field-hint">Ex.: CRC da Costa → FROTA CRC</span><input id="centroCusto" placeholder="Será preenchido conforme a empresa"></label>
   </div>  <div class="form-actions"><button class="secondary-btn" id="copyData" type="button">Importar ao DSS</button><span id="copyStatus" role="status"></span></div>
   <p class="privacy-note">A leitura acontece neste navegador. Revise os campos extraídos: PDFs diferentes podem apresentar informações em posições ou formatos distintos.</p>
-  <details class="mapping-guide" id="mappingGuide">
-    <summary>Registro permanente: origem de cada campo e regras de leitura</summary>
-    <div class="mapping-body">
-      <p class="mapping-intro">Este registro documenta de qual rótulo/bloco cada campo vem e como o leitor deve reconhecê-lo em outras multas. Nomes, placas, órgãos, municípios, datas, AITs, descrições e valores mudam entre documentos; o mapeamento deve continuar seguindo a origem do campo, não os exemplos de valor. PDF e JPEG/PNG usam o mesmo parser.</p>
-      <div class="mapping-table-wrap">
-        <table>
-          <thead><tr><th>Campo do site</th><th>Origem no documento</th><th>Regra que deve ser mantida</th></tr></thead>
-          <tbody>
-            <tr><td><strong>Empresa</strong></td><td>“Nome” no bloco “PESSOA JURÍDICA PROPRIETÁRIA DO VEÍCULO NA DATA DA INFRAÇÃO ORIGINÁRIA” (print 1).</td><td>Ler a razão social associada a Nome e parar antes dos rótulos seguintes. O nome muda por multa.</td></tr>
-            <tr><td><strong>Veículo</strong></td><td>Bloco de dados do veículo, campo “Placa” (print 2).</td><td>Ler a placa desse bloco. Não usar o município do veículo no Local da multa/sinistro.</td></tr>
-            <tr><td><strong>Motorista</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Fornecedor</strong></td><td>“Órgão Autuador” e o nome verdadeiro do órgão na multa.</td><td>Preencher com o nome do órgão, não com o título do campo. Pode variar, por exemplo DER ou outro órgão.</td></tr>
-            <tr><td><strong>Cod infração</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>N° multa</strong></td><td>Auto de Infração principal (print 5).</td><td>Acompanhar o AIT principal; não usar número de postagem nem AIT originária.</td></tr>
-            <tr><td><strong>Chegou apenas notificação</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Local da multa/sinistro</strong></td><td>Bloco “Local / Rodovia” (print 3): linha de valores com rodovia, KM, metros, sentido, Município da Infração, UF e código.</td><td>Montar “RODOVIA KM NÚMERO MUNICÍPIO”, por exemplo <strong>SP 150 KM 043 CUBATÃO</strong>. A cidade deve vir do Município da Infração nessa linha, não do bloco do veículo. Rodovia, KM e cidade são dinâmicos; preservar zeros à esquerda.</td></tr>
-            <tr><td><strong>Histórico multa</strong></td><td>Descrição abaixo de “Penalidade aplicada”, dentro de “TIPIFICAÇÃO DA PENALIDADE APLICADA” (print 8).</td><td>Capturar a descrição completa e cortar antes de Cód. Infração, Desdob., base legal, datas/horas e outros campos vizinhos. Não devolver o cabeçalho nem o rodapé; corrigir somente erros claros do OCR.</td></tr>
-            <tr><td><strong>Peças danificadas</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Prejuízo valor</strong></td><td>Calculado com os valores da tabela inferior.</td><td>Valor líquido − Des. valor, equivalente a Valor com Desconto.</td></tr>
-            <tr><td><strong>Des. valor</strong></td><td>Valor Integral e Valor com Desconto na tabela inferior.</td><td>Valor Integral − Valor com Desconto. É a diferença, não o total.</td></tr>
-            <tr><td><strong>Valor líquido</strong></td><td>“Valor Integral” na tabela inferior.</td><td>Copiar o Valor Integral atual do documento; não fixar o montante.</td></tr>
-            <tr><td><strong>Tipo ocorrência</strong></td><td>Regra fixa do formulário.</td><td>Sempre MULTA; não extrair do documento.</td></tr>
-            <tr><td><strong>Data da infração</strong></td><td>“Data” + “Hora” no bloco da infração, associado a Município da Infração (print 4).</td><td>Combinar data e hora da ocorrência. Não confundir com postagem ou vencimento.</td></tr>
-            <tr><td><strong>Data da chegada da cobrança</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Pontos multa</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>N° AIT</strong></td><td>“Auto de Infração” principal (print 5).</td><td>Capturar o identificador completo, inclusive letras, números e sufixo. Excluir explicitamente Originária.</td></tr>
-            <tr><td><strong>N° AIT originária</strong></td><td>“Auto de Infração Originária” (print 6).</td><td>Capturar somente o identificador deste rótulo; manter separado do AIT principal.</td></tr>
-            <tr><td><strong>Gastos com veículo</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>N° da fatura</strong></td><td>Sistema de destino, não está na multa.</td><td>Campo desabilitado/automático. Não extrair AIT, código ou postagem.</td></tr>
-            <tr><td><strong>Data de vencimento</strong></td><td>“Data de Vencimento” na tabela inferior, próxima a Valor Integral/Valor com Desconto (print 7).</td><td>Capturar o vencimento dessa tabela; não usar data da infração, postagem ou prazo de recurso.</td></tr>
-            <tr><td><strong>Pago pelo motorista</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Multa descontada</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Data de desconto</strong></td><td>Não extraído pelo leitor atual.</td><td>Manual.</td></tr>
-            <tr><td><strong>Centro de custo</strong></td><td>Regra associada à empresa reconhecida.</td><td>Regra confirmada: CRC DA COSTA TRANSPORTES LTDA → FROTA CRC. Recalcular a cada leitura; não copiar para outras empresas sem mapeamento confirmado.</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <h4 class="mapping-section-title">Rotina de leitura que deve ser preservada</h4>
-      <ul class="mapping-rule-list">
-        <li>PDF: PDF.js organiza o texto por posição; se faltar algum campo essencial, o sistema tenta OCR das páginas com Tesseract em português.</li>
-        <li>Imagem JPEG/PNG: Tesseract reconhece o texto diretamente e envia o resultado ao mesmo parser.</li>
-        <li>Variar datas, números, municípios, empresa, órgão, AIT, descrição e valores sem alterar o mapeamento semântico.</li>
-        <li>Não declarar leitura completa se faltar município no Local da multa/sinistro ou outro campo essencial.</li>
-        <li>Manter os campos marcados como manuais, e nunca extrair o número da fatura da multa.</li>
-      </ul>
-      <a class="mapping-doc-link" href="https://github.com/souzarlk/CONCLUS-O-DE--MULTAS/blob/main/MAPEAMENTO-CAMPOS-MULTAS.md" target="_blank" rel="noopener">Abrir o registro completo de manutenção no repositório</a>
-    </div>
-  </details>
+
 </div>
 </div>
 <div class="footnote"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg><span>Ambiente de uso interno • Ferramenta de apoio operacional</span></div>
