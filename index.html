@@ -212,11 +212,17 @@ pdfInput.addEventListener('change',async()=>{
    }
    ctx.putImageData(image,0,0);return canvas;
  };
- const recognize=async(source,message)=>{
-   const result=await Tesseract.recognize(source,'por',{logger:m=>{
+ const recognize=async(source,message,segmentationMode=6)=>{
+   const worker=await Tesseract.createWorker('por',1,{logger:m=>{
      if(m.status==='recognizing text')parseStatus.textContent=message+' '+Math.round((m.progress||0)*100)+'%';
    }});
-   return result.data.text||'';
+   try{
+     await worker.setParameters({tessedit_pageseg_mode:String(segmentationMode),preserve_interword_spaces:'1',user_defined_dpi:'300'});
+     const result=await worker.recognize(source);
+     return result.data.text||'';
+   }finally{
+     await worker.terminate();
+   }
  };
  clearAutoFields();fileName.textContent=file.name;parseStatus.className='parse-status';
  parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';
@@ -263,7 +269,7 @@ pdfInput.addEventListener('change',async()=>{
    let missing=chooseBest();
    if(missing.length){
      if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
-     const renderAndRecognize=async(useThreshold)=>{
+     const renderAndRecognize=async(useThreshold,segmentationMode=6)=>{
        const ocrPages=[];
        for(let p=1;p<=pdf.numPages;p++){
          parseStatus.className='parse-status';
@@ -276,7 +282,7 @@ pdfInput.addEventListener('change',async()=>{
          let targetCanvas=sourceCanvas;
          if(useThreshold)targetCanvas=binaryCanvas(sourceCanvas);
          try{
-           const pageText=await recognize(targetCanvas,(useThreshold?'OCR reforçado da página ':'OCR da página ')+p+'/'+pdf.numPages+'…');
+           const pageText=await recognize(targetCanvas,(useThreshold?'OCR reforçado da página ':'OCR da página ')+p+'/'+pdf.numPages+'…',segmentationMode);
            ocrPages.push(pageText);
          }finally{
            if(targetCanvas!==sourceCanvas){targetCanvas.width=0;targetCanvas.height=0;}
@@ -288,8 +294,14 @@ pdfInput.addEventListener('change',async()=>{
      const firstOcrText=await renderAndRecognize(false);
      missing=addCandidate(firstOcrText);
      if(missing.length){
-       const secondOcrText=await renderAndRecognize(true);
+       const secondOcrText=await renderAndRecognize(true,6);
        missing=addCandidate(secondOcrText);
+     }
+     if(missing.length){
+       parseStatus.className='parse-status';
+       parseStatus.textContent='Tentativa 3: reorganizando a leitura dos blocos de texto…';
+       const thirdOcrText=await renderAndRecognize(false,11);
+       missing=addCandidate(thirdOcrText);
      }
      chooseBest();
    }
@@ -364,7 +376,7 @@ function parsePenaltyPdf(raw){
      if(companyMatch)company=clean(companyMatch[1]);
    }
  }
- const plate=firstMatch([
+ let plate=firstMatch([
    /\bPlaca\s*[:.]?\s*([A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i,
    /\bPlaca\s*[:.]?\s*([A-Z0-9]{7})\b/i,
    /\b(CCU\s*8\s*C\s*25|[A-Z]{3}\s*\d[A-Z0-9]\s*\d{2})\b/i
@@ -492,8 +504,27 @@ function parsePenaltyPdf(raw){
    const hits=cityPatterns.map(([pattern,name])=>({index:localitySearch.search(pattern),name})).filter(hit=>hit.index>=0).sort((a,b)=>a.index-b.index);
    if(hits.length)municipality=hits[0].name;
  }
+ // Fallback quando o OCR perde o cabeçalho Local/Rodovia.
+ if(!local||!km||!municipality){
+   const routeFallback=/\b(SP\s*\d{1,4})\s+(?:KM\s*)?(\d{1,5})\b/i.exec(text);
+   if(routeFallback){
+     if(!local)local=clean(routeFallback[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+     if(!km)km=clean(routeFallback[2]);
+     const afterRoute=text.slice(routeFallback.index,routeFallback.index+520).toLocaleUpperCase('pt-BR');
+     const cityFallback=[
+       [/\bCUBAT[AÃ]O\b/,'CUBATÃO'],[/\bSANTOS\b/,'SANTOS'],[/\bGUARUJ[AÁ]\b/,'GUARUJÁ'],
+       [/\bPRAIA\s+GRANDE\b/,'PRAIA GRANDE'],[/\bS[AÃ]O\s+VICENTE\b/,'SÃO VICENTE'],
+       [/\bMONGAGU[AÁ]\b/,'MONGAGUÁ'],[/\bBERTIOGA\b/,'BERTIOGA'],[/\bITANHA[EÉ]M\b/,'ITANHAÉM'],
+       [/\bPERU[IÍ]BE\b/,'PERUÍBE'],[/\bS[AÃ]O\s+PAULO\b/,'SÃO PAULO']
+     ];
+     if(!municipality){
+       const hits=cityFallback.map(([pattern,name])=>({index:afterRoute.search(pattern),name})).filter(hit=>hit.index>=0).sort((a,b)=>a.index-b.index);
+       if(hits.length)municipality=hits[0].name;
+     }
+   }
+ }
  if(!municipality&&localContext){
-   // Último fallback, também limitado à seção da localização da infração.
+   // Último fallback, também limitado à seção da localização.
    const afterDirectionRe=new RegExp('\\b(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'(?:\\s+\\d{3,})?\\b','i');
    const afterDirection=localContext.match(afterDirectionRe);
    if(afterDirection)municipality=clean(afterDirection[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
@@ -514,7 +545,7 @@ function parsePenaltyPdf(raw){
    const code=value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i);
    if(code>0)value=value.slice(0,code);
    else{
-     const stop=/\s+(?=(?:Base\s+Legal|C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Desdob\.?|Dt\.?\s+Lim|Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral|Data\s+de\s+Vencimento)\b)/i.exec(value);
+     const stop=/\s+(?=(?:Base\s+Legal|C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Desdob\.?|Dt\.?\s+Lim|Data\s+da\s+Infra[cç][aã]o|Data\s+de\s+Vencimento|Hora\s+Infra[cç][aã]o|Valor\s+Integral|Data\s+de\s+Vencimento)\b)/i.exec(value);
      if(stop)value=value.slice(0,stop.index);
    }
    value=normalizePenalty(value);
@@ -535,7 +566,7 @@ function parsePenaltyPdf(raw){
      const description=nearby.match(/\bMULTA\b[\s\S]{0,400}/i);
      if(description){
        let value=description[0];
-       const stops=[value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i),value.search(/\s+Base\s+Legal\b/i),value.search(/\s+(?:Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)].filter(pos=>pos>0);
+       const stops=[value.search(/\s+\d{2,4}[-/.]\d{1,2}\b/i),value.search(/\s+Base\s+Legal\b/i),value.search(/\s+(?:Data\s+da\s+Infra[cç][aã]o|Data\s+de\s+Vencimento|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)].filter(pos=>pos>0);
        if(stops.length)value=value.slice(0,Math.min(...stops));
        value=normalizePenalty(value);
        if(value.length>=5){penalty=value;break;}
@@ -549,7 +580,7 @@ function parsePenaltyPdf(raw){
      let candidate=item[0];
      const stops=[
        candidate.search(/\s+\d{2,4}\s*[-/.]\s*\d{1,2}\b/i),
-       candidate.search(/\s+(?:C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Base\s+Legal|Desdob\.?|Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)
+       candidate.search(/\s+(?:C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Base\s+Legal|Desdob\.?|Data\s+da\s+Infra[cç][aã]o|Data\s+de\s+Vencimento|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)
      ].filter(position=>position>0);
      if(stops.length)candidate=candidate.slice(0,Math.min(...stops));
      candidate=normalizePenalty(candidate);
@@ -589,6 +620,28 @@ function parsePenaltyPdf(raw){
    const valid=companyCandidates.map(m=>clean(m[1])).find(v=>v.length>=6&&!/^(?:DA INFRA[CÇ][AÃ]O|PESSOA JUR[IÍ]DICA|TIPIFICA[CÇ][AÃ]O)\b/i.test(v));
    if(valid)company=valid;
  }
+ // Recupera a razão social mesmo quando o OCR perde os rótulos do bloco proprietário.
+ if(!company){
+   const entityRows=sourceRows.map(row=>{
+     const suffix=/\b(LTDA\.?|S\/?\s*A\.?|EIRELI|SPE)\b/i.exec(row);
+     if(!suffix)return '';
+     let prefix=row.slice(0,suffix.index);
+     prefix=prefix.replace(/^.*\b(?:Nome|Origin[aá]ria|CNPJ|CPF)\b/i,' ');
+     const words=prefix.match(/[A-ZÀ-Ü0-9&.'’()/-]+/ig)||[];
+     const nameWords=words.slice(-6);
+     const value=clean(nameWords.join(' ')+' '+suffix[1]);
+     if(nameWords.length<2||/^(?:PESSOA JUR[IÍ]DICA|TIPIFICA[CÇ][AÃ]O DA|DEPARTAMENTO DE)$/i.test(value))return '';
+     return value;
+   }).filter(Boolean);
+   if(entityRows.length)company=entityRows[0];
+ }
+ if(!plate){
+   const labelMatch=/\bPlaca\b/i.exec(text);
+   const region=labelMatch?text.slice(labelMatch.index,labelMatch.index+220):'';
+   const candidates=[...region.matchAll(/\b([A-Z0-9]{7})\b/ig)];
+   const candidate=candidates.map(m=>m[1].toUpperCase()).find(v=>/^[A-Z]{3}\d{4}$/.test(v)||/^[A-Z]{3}\d[A-Z]\d{2}$/.test(v));
+   if(candidate)plate=candidate;
+ }
  if(!multa){
    const m=text.match(/\bAuto\s+de\s+Infra[cç][aã]o\s*[:.]?\s*([A-Z0-9]{2,5}\s*\d{5,}[\/-]?\d*)/i);
    if(m&&!/origin[aá]ria/i.test(text.slice(m.index, m.index+65)))multa=clean(m[1]);
@@ -609,10 +662,24 @@ function parsePenaltyPdf(raw){
    const m=text.match(/\bAuto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
    if(m)origin=clean(m[1]);
  }
+ // Prioriza o identificador logo após "Originária", ignorando a menção no cabeçalho proprietário.
+ if(!origin){
+   const labels=[...text.matchAll(/origin[aá]ria/ig)];
+   const originEntries=labels.map(label=>{
+     const after=text.slice(label.index+label[0].length,label.index+label[0].length+100);
+     const id=after.match(/^\s*[:.;-]?\s*(?:N[ºO.]?\s*)?([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)/i);
+     const before=text.slice(Math.max(0,label.index-90),label.index);
+     return {id:id?id[1]:'',priority:/Auto\s+(?:de|da)?\s*Infra[cç][aã]o\s*$/i.test(before)?2:1,index:label.index};
+   }).filter(item=>item.id&&/[A-Z]/i.test(item.id));
+   originEntries.sort((a,b)=>b.priority-a.priority||a.index-b.index);
+   if(originEntries.length)origin=clean(originEntries[0].id).toUpperCase();
+ }
  // O vencimento já foi selecionado acima pela data rotulada na tabela inferior.
  // Importante: não fixar AIT, vencimento ou valores monetários.
  // Cada documento deve fornecer esses dados a partir dos rótulos e blocos próprios da multa:
  // AIT principal, AIT originária e tabela inferior (vencimento, valor integral e valor com desconto).
+ // Canonicaliza municípios reconhecidos sem acento.
+ municipality=String(municipality||'').replace(/CUBATAO/i,'CUBATÃO').replace(/GUARUJA/i,'GUARUJÁ').replace(/MONGAGUA/i,'MONGAGUÁ').replace(/ITANHAEM/i,'ITANHAÉM').replace(/PERUIBE/i,'PERUÍBE').replace(/SAO VICENTE/i,'SÃO VICENTE').replace(/SAO PAULO/i,'SÃO PAULO');
  // Aplicar novamente os valores após os fallbacks, para que a tela receba exatamente os dados corrigidos.
  set('empresa',company);
  // Comportamento original: CRC da Costa Transportes Ltda. -> FROTA CRC.
