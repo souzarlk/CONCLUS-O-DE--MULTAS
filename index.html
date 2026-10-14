@@ -231,7 +231,7 @@ pdfInput.addEventListener('change',async()=>{
        try{
          bitmap=await createImageBitmap(file);
          const maxDim=Math.max(bitmap.width,bitmap.height);
-         const scale=Math.max(1,Math.min(2.2,3800/maxDim));
+         const scale=Math.min(2.2,3800/maxDim);
          sourceCanvas=document.createElement('canvas');
          sourceCanvas.width=Math.round(bitmap.width*scale);sourceCanvas.height=Math.round(bitmap.height*scale);
          sourceCanvas.getContext('2d').drawImage(bitmap,0,0,sourceCanvas.width,sourceCanvas.height);
@@ -596,6 +596,14 @@ function parsePenaltyPdf(raw){
  if(!infDate){
    const m=text.match(/\bData\s*[:.]?\s*(\d{2}\/\d{2}\/\d{4})[\s|,;]+Hora\s*[:.]?\s*(\d{2}:\d{2})/i);
    if(m)infDate=m[1]+' - '+m[2];
+   // Fallback para digitalização que não reconhece os rótulos "Data/Hora":
+   // procurar a data/hora perto da sequência rodovia-KM-sentido da infração.
+   if(!infDate){
+     const routeIndex=upper.search(/\bSP\s*[-.]?\s*\d{1,4}\s+\d{1,5}\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\b/i);
+     const dateRegion=routeIndex>=0?text.slice(routeIndex,routeIndex+900):'';
+     const pair=dateRegion.match(/\b(\d{2}[\/.]\d{2}[\/.]\d{4})\s+(\d{2}:\d{2})(?::\d{2})?\b/);
+     if(pair)infDate=pair[1].replace(/\./g,'/')+' - '+pair[2];
+   }
  }
  if(!origin){
    const m=text.match(/\bAuto\s+(?:de|da)\s+Infra[cç][aã]o\s+Origin[aá]ria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
