@@ -247,9 +247,10 @@ function parsePenaltyPdf(raw){
    /(M\.?\s*BENZ\/AXOR\s*2036\s*S)/i
  ]);
  if(/^(?:Esp[eé]cie|Tipo|Pa[ií]s|Categoria)(?:\s+(?:Tipo|Pa[ií]s|Categoria))?$/i.test(model))model='';
+ // Primeiro procurar o nome do órgão no documento inteiro. A extração por proximidade do rótulo falha quando o PDF organiza o texto em colunas.
  const org=firstMatch([
-   /Órgão\s+Autuador\s*[:.]?\s*(.{4,110}?)(?=\s+(?:Código\s+do\s+Órgão|Codigo\s+do\s+Orgao|Código\s+Órgão)\b)/i,
-   /(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM)/i
+   /(DEPARTAMENTO\s+DE\s+ESTRADAS\s+E?\s*RODAGENS?)/i,
+   /Órgão\s+Autuador\s*[:.]?\s*(.{4,110}?)(?=\s+(?:Código\s+do\s+Órgão|Codigo\s+do\s+Orgao|Código\s+Órgão)\b)/i
  ]);
  // Data/hora da infração: buscar perto do bloco "Município da Infração",
  // evitando confundir a data da postagem ou as datas da tabela de penalidade.
@@ -367,10 +368,8 @@ function parsePenaltyPdf(raw){
  // O campo Veículo recebe somente a placa destacada no print 2.
  if(plate)set('veiculo',plate);
  // Fornecedor: capturar o valor associado ao rótulo Órgão Autuador no próprio documento.
- const supplierLabel=/Órg[aã]o\s+Autuador/i.exec(text);
- if(supplierLabel){const w=text.slice(supplierLabel.index+supplierLabel[0].length,supplierLabel.index+supplierLabel[0].length+240);let supplier=clean(w.split(/\b(?:Código\s+do\s+Órgão|Auto\s+(?:de|da)\s+Infração|Data\s+da\s+Postagem)\b/i)[0]);supplier=supplier.replace(/^[\s:|.-]+/,'').replace(/\s*\|\s*/g,' ').trim();if(supplier&&!/^(?:CÓDIGO|DATA|HORA|PLACA)$/i.test(supplier))set('fornecedor',supplier);}
- // O regex de rótulo pode falhar quando o PDF organiza órgão e valor em colunas; usar o órgão identificado no texto do próprio documento como fallback confiável.
- if(org)set('fornecedor',org);
+ // Nunca preencher o campo com o próprio rótulo. Usar somente o nome identificado no conteúdo do documento.
+ if(org && !/^(?:Órgão\s+Autuador|Código|Data|Hora|Placa)$/i.test(org))set('fornecedor',org);
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',penalty);
  // Valor líquido = Valor Integral; Des. valor = Integral - Valor com Desconto;
