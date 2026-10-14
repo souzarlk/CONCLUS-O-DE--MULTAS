@@ -643,16 +643,28 @@ function parsePenaltyPdf(raw){
  }
 
  // Código da infração da penalidade aplicada:
- // usar o rótulo específico "Cód. Infração" no quadro inferior, e não o campo superior
- // "Código da Infração" da tipificação originária (na multa de teste, o outro código é 570 3).
+ // No impresso, o código fica na linha dos valores, à direita da descrição da penalidade;
+ // o cabeçalho "Cód. Infração" fica logo acima e pode aparecer antes de outros cabeçalhos de coluna.
+ // Não usar o campo superior "Código da Infração" da tipificação originária (valor de teste: 570 3).
  let codInfracao='';
  const penaltySectionRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i;
- const penaltySectionRow=sourceRows.findIndex(row=>penaltySectionRe.test(row));
+ const penaltySectionAt=upper.search(penaltySectionRe);
+ const codeLabelRe=/\bC[oó0]d\.?\s*Infra[cç][aã]o\b/i;
+ const codeLabelReGlobal=/\bC[oó0]d\.?\s*Infra[cç][aã]o\b/ig;
+ const normalizeInfractionCode=value=>{
+   const s=String(value||'').replace(/[–—−]/g,'-');
+   let m=s.match(/\b(\d{2,4})\s*-\s*(\d{1,2})\b/);
+   if(!m)m=s.match(/\b(\d{2,4})\s+(\d{1,2})\b/);
+   return m?m[1]+'-'+m[2]:'';
+ };
+ const textCodeLabels=[...text.matchAll(codeLabelReGlobal)];
+ const lastTextCodeLabel=textCodeLabels[textCodeLabels.length-1]||null;
+ // 1) Localizar a linha do cabeçalho. Se o título da seção foi ilegível pelo OCR,
+ // o rótulo abreviado é único e a última ocorrência é a que pertence à tabela inferior.
+ let penaltySectionRow=sourceRows.findIndex(row=>penaltySectionRe.test(row));
  let codeLabelRow=-1;
- const codeLabelRe=/\bC[oó]d\.?\s*Infra[cç][aã]o\b/i;
  if(penaltySectionRow>=0){
-   const sectionLimit=Math.min(sourceRows.length,penaltySectionRow+24);
-   for(let i=penaltySectionRow;i<sectionLimit;i++){
+   for(let i=penaltySectionRow;i<sourceRows.length;i++){
      if(codeLabelRe.test(sourceRows[i])){codeLabelRow=i;break;}
    }
  }
@@ -661,45 +673,52 @@ function parsePenaltyPdf(raw){
      if(codeLabelRe.test(sourceRows[i])){codeLabelRow=i;break;}
    }
  }
- const normalizeInfractionCode=value=>{
-   const s=String(value||'').replace(/[–—−]/g,'-');
-   let m=s.match(/\b(\d{2,4})\s*-\s*(\d{1,2})\b/);
-   if(!m)m=s.match(/\b(\d{2,4})\s+(\d{1,2})\b/);
-   return m?m[1]+'-'+m[2]:'';
- };
- if(codeLabelRow>=0){
-   const labelText=sourceRows[codeLabelRow];
-   const labelMatch=codeLabelRe.exec(labelText);
-   if(labelMatch)codInfracao=normalizeInfractionCode(labelText.slice(labelMatch.index+labelMatch[0].length));
+ // 2) Usar o trecho inferior como contexto principal. Se o título da seção foi ilegível,
+ // começar próximo do último rótulo "Cód. Infração", nunca no topo do documento.
+ const lowerStart=penaltySectionAt>=0
+   ?penaltySectionAt
+   :lastTextCodeLabel
+     ?Math.max(0,lastTextCodeLabel.index-500)
+     :Math.max(0,upper.lastIndexOf('PENALIDADE APLICADA'));
+ const lowerPenaltyText=text.slice(lowerStart,Math.min(text.length,lowerStart+3200));
+ const baseLegalAt=lowerPenaltyText.search(/\b(?:Base\s+Legal|Lei\s+n[ºo°.]|Motivo\s+do\s+n[aã]o\s+atacamento)\b/i);
+ const penaltyAndCodeRegion=baseLegalAt>=0?lowerPenaltyText.slice(0,baseLegalAt):lowerPenaltyText;
+ // A descrição "MULTA POR..." e o código estão na mesma linha de valores na multa impressa.
+ const descriptions=[...penaltyAndCodeRegion.matchAll(/\bMULTA\s+POR\b/ig)];
+ for(const description of descriptions){
+   const afterDescription=penaltyAndCodeRegion.slice(description.index,description.index+1000);
+   const strict=afterDescription.match(/\b(\d{2,4})\s*[-–—−]\s*(\d{1,2})\b/);
+   if(strict){codInfracao=strict[1]+'-'+strict[2];break;}
+ }
+ // 3) Se o texto estiver ordenado por coluna em vez de linha, partir do rótulo e pesquisar
+ // mais linhas: "Desdob.", "Pt. Lim." e as datas podem vir entre o cabeçalho e o código.
+ if(!codInfracao&&codeLabelRow>=0){
+   const rowsAround=sourceRows.slice(codeLabelRow,Math.min(sourceRows.length,codeLabelRow+18)).join(' ');
+   const labelInJoined=codeLabelRe.exec(rowsAround);
+   if(labelInJoined){
+     const tail=rowsAround.slice(labelInJoined.index+labelInJoined[0].length);
+     const strict=tail.match(/\b(\d{2,4})\s*[-–—−]\s*(\d{1,2})\b/);
+     if(strict)codInfracao=strict[1]+'-'+strict[2];
+   }
    if(!codInfracao){
-     for(let i=codeLabelRow+1;i<Math.min(sourceRows.length,codeLabelRow+5);i++){
-       const strict=sourceRows[i].match(/\b(\d{2,4})\s*[-–—−]\s*(\d{1,2})\b/);
-       if(strict){codInfracao=strict[1]+'-'+strict[2];break;}
-       const loose=normalizeInfractionCode(sourceRows[i]);
+     for(const row of sourceRows.slice(codeLabelRow+1,Math.min(sourceRows.length,codeLabelRow+18))){
+       const loose=normalizeInfractionCode(row);
        if(loose){codInfracao=loose;break;}
      }
    }
-   if(!codInfracao){
-     const valueRows=sourceRows.slice(codeLabelRow,Math.min(sourceRows.length,codeLabelRow+3)).join(' ');
-     const labelInJoined=codeLabelRe.exec(valueRows);
-     if(labelInJoined){
-       const afterLabel=valueRows.slice(labelInJoined.index+labelInJoined[0].length);
-       const beforeOtherColumn=afterLabel.split(/\b(?:Desdob\.?|Base\s+Legal|Artigo|Inciso|Data|Hora|Pt\.?\s*Lim)\b/i)[0];
-       codInfracao=normalizeInfractionCode(beforeOtherColumn);
-     }
+ }
+ // 4) Última tentativa linear ancorada no rótulo exato, com janela mais larga para
+ // acomodar o reordenamento dos blocos por PDF.js/Tesseract.
+ if(!codInfracao&&lastTextCodeLabel){
+   const tail=text.slice(lastTextCodeLabel.index+lastTextCodeLabel[0].length,Math.min(text.length,lastTextCodeLabel.index+lastTextCodeLabel[0].length+1600));
+   const strict=tail.match(/\b(\d{2,4})\s*[-–—−]\s*(\d{1,2})\b/);
+   if(strict)codInfracao=strict[1]+'-'+strict[2];
+   else{
+     const limited=tail.split(/\b(?:Valor\s+Integral|Valor\s+Com\s+Desconto|Motivo\s+do\s+n[aã]o|Informativo\s+sobre\s+Pagamento)\b/i)[0];
+     const loose=normalizeInfractionCode(limited);
+     if(loose)codInfracao=loose;
    }
  }
- if(!codInfracao){
-   const lowerPenaltyAt=upper.search(penaltySectionRe);
-   const lowerPenaltyText=lowerPenaltyAt>=0?text.slice(lowerPenaltyAt,lowerPenaltyAt+1800):text;
-   const codeLabelMatches=[...lowerPenaltyText.matchAll(/\bC[oó]d\.?\s*Infra[cç][aã]o\b/ig)];
-   for(const m of codeLabelMatches){
-     const chunk=lowerPenaltyText.slice(m.index+m[0].length,m.index+m[0].length+100);
-     const code=normalizeInfractionCode(chunk.split(/\b(?:Desdob\.?|Base\s+Legal|Artigo|Inciso|Data|Hora|Pt\.?\s*Lim)\b/i)[0]);
-     if(code){codInfracao=code;break;}
-   }
- }
- 
  // O PDF pode separar os rótulos e os valores em colunas.
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
