@@ -286,39 +286,19 @@ function parsePenaltyPdf(raw){
    const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
    if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
- // Local da multa: extrair apenas os valores dos três rótulos do print 3.
- // Evita que a leitura em colunas capture "CÓDIGO", "DATA" ou "HORA" como município.
- let local='';
- let km='';
- let municipality='';
- const roadMatch=text.match(/\b((?:SP|BR)\s*[-]?\s*\d{1,4})\b/i);
+ // Local: montar somente com rodovia, KM e município, ignorando títulos próximos.
+ let local='',km='',municipality='';
+ const roadLabel=/Local\s*\/\s*Rodovia/i.exec(text);
+ const roadContext=roadLabel?text.slice(roadLabel.index,roadLabel.index+240):text;
+ const roadValue=roadContext.match(/(?:Local\s*\/\s*Rodovia\s*[:.]?\s*)(SP\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)/i);
+ const roadMatch=roadValue||text.match(/\b(SP\s*\d{1,4}(?:\s+(?:NORTE|SUL|LESTE|OESTE))?)\b/i);
  if(roadMatch)local=clean(roadMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
  const kmLabel=/\bKM\b\s*[:.]?/i.exec(text);
- if(kmLabel){
-   const kmWindow=text.slice(kmLabel.index+kmLabel[0].length,kmLabel.index+kmLabel[0].length+90);
-   const kmValue=kmWindow.match(/^\s*(?:N[º°.]?\s*)?(\d{1,5}(?:\s*\+\s*\d{1,3})?)\b/i);
-   if(kmValue)km=clean(kmValue[1]).replace(/\s+/g,' ');
- }
- // Fallback para PDFs que colocam o valor KM antes do rótulo.
- if(!km){
-   const kmFallback=text.match(/\b(\d{3,5})\s+KM\b/i);
-   if(kmFallback)km=kmFallback[1];
- }
+ if(kmLabel){const w=text.slice(kmLabel.index+kmLabel[0].length,kmLabel.index+kmLabel[0].length+240);const m=w.match(/(?:^|[|\s:.-])(?:KM\s*)?(\d{1,5}(?:\s*\+\s*\d{1,3})?)\b/i);if(m)km=clean(m[1]).replace(/\s+/g,' ');}
+ if(!km){const m=text.match(/\b(\d{3,5})\s*(?:\||\s)+KM\b/i);if(m)km=m[1];}
  const municipalityLabelMatch=/Munic[ií]pio\s+da\s+Infra[cç][aã]o/i.exec(text);
- if(municipalityLabelMatch){
-   const before=text.slice(Math.max(0,municipalityLabelMatch.index-100),municipalityLabelMatch.index);
-   const after=text.slice(municipalityLabelMatch.index+municipalityLabelMatch[0].length,municipalityLabelMatch.index+municipalityLabelMatch[0].length+140);
-   const forbidden=/^(?:MUNIC[IÍ]PIO|DA|DE|DO|DAS|DOS|INFRA[CÇ][AÃ]O|UF|C[ÓO]DIGO|DATA|HORA|MARCA|MODELO|ESP[EÉ]CIE|TIPO|PA[IÍ]S|PLACA|AUTO|PENALIDADE|APLICADA|LOCAL|RODOVIA|SP|BR|KM)$/i;
-   const cityRe=/\b([A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}(?:\s+[A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}){0,2})\b/g;
-   const afterCities=[...after.matchAll(cityRe)].map(m=>clean(m[1]).toLocaleUpperCase('pt-BR')).filter(v=>!forbidden.test(v));
-   const beforeCities=[...before.matchAll(cityRe)].map(m=>clean(m[1]).toLocaleUpperCase('pt-BR')).filter(v=>!forbidden.test(v));
-   municipality=afterCities.find(v=>/CUBAT[AÃ]O|SANTOS|GUARUJ[AÁ]|PRAIA GRANDE|S[AÃ]O VICENTE|MONGAGU[AÁ]|BERTIOGA|ITANHA[EÉ]M|PERU[IÍ]BE|CAMPINAS|S[AÃ]O PAULO/i.test(v))||'';
-   if(!municipality)municipality=beforeCities.find(v=>/CUBAT[AÃ]O|SANTOS|GUARUJ[AÁ]|PRAIA GRANDE|S[AÃ]O VICENTE|MONGAGU[AÁ]|BERTIOGA|ITANHA[EÉ]M|PERU[IÍ]BE|CAMPINAS|S[AÃ]O PAULO/i.test(v))||'';
-   if(!municipality){
-     const candidates=[...afterCities,...beforeCities].filter(v=>v.length>2&&!/\b(?:C[ÓO]DIGO|DATA|HORA)\b/i.test(v));
-     municipality=candidates[0]||'';
-   }
- }
+ const knownCity=/\b(CUBAT[AÃ]O|SANTOS|GUARUJ[AÁ]|PRAIA\s+GRANDE|S[AÃ]O\s+VICENTE|MONGAGU[AÁ]|BERTIOGA|ITANHA[EÉ]M|PERU[IÍ]BE|S[AÃ]O\s+PAULO)\b/i;
+ if(municipalityLabelMatch){const around=text.slice(Math.max(0,municipalityLabelMatch.index-260),Math.min(text.length,municipalityLabelMatch.index+300));const city=around.match(knownCity);if(city)municipality=clean(city[1]).toLocaleUpperCase('pt-BR');if(!municipality){const after=text.slice(municipalityLabelMatch.index+municipalityLabelMatch[0].length,municipalityLabelMatch.index+municipalityLabelMatch[0].length+100);const c=after.match(/^\s*[:|.-]?\s*([A-ZÀ-Ü][A-ZÀ-Ü'-]{2,})\b/i);if(c&&!/^(?:C[ÓO]DIGO|DATA|HORA|UF|MARCA|MODELO)$/i.test(c[1]))municipality=clean(c[1]).toLocaleUpperCase('pt-BR');}}
  // Histórico: o texto pode aparecer antes do rótulo quando o PDF é lido por colunas.
  // Procurar a descrição de penalidade, nunca o cabeçalho com placa/UF/município/modelo.
  let penalty='';
@@ -336,33 +316,16 @@ function parsePenaltyPdf(raw){
      if(penaltyChunk && !/^(?:Placa|UF|Munic[ií]pio|Marca|Modelo|Esp[eé]cie|Tipo|Pa[ií]s)\b/i.test(penaltyChunk))penalty=penaltyChunk;
    }
  }
- // Valores conforme a tabela marcada: prejuízo = Valor Integral; desconto = Integral - Com Desconto.
- // Busca os valores perto dos rótulos, tolerando variações de acento e OCR.
- const moneyNear=(labelRe,stopRe)=>{
-   const m=labelRe.exec(text);
-   if(!m)return '';
-   const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);
-   const stop=stopRe?stopRe.exec(chunk):null;
-   const area=stop?chunk.slice(0,stop.index):chunk;
-   return money(area);
- };
+ // O PDF pode separar os rótulos e os valores em colunas.
+ const moneyNear=(labelRe,stopRe)=>{const m=labelRe.exec(text);if(!m)return '';const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+360);const stop=stopRe?stopRe.exec(chunk):null;return money(stop?chunk.slice(0,stop.index):chunk)};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
- // fallback ao texto normalizado caso o PDF separe os rótulos dos valores por colunas
- if(!integral)integral=money(extractAfter('Valor Integral',['Valor com Desconto','Data de Vencimento','Data da Postagem'],180));
- if(!discounted)discounted=money(extractAfter('Valor com Desconto',['Data de Vencimento','Data da Postagem','Penalidade Aplicada'],180));
- // PDFs de multas frequentemente extraem a tabela em colunas, separando os rótulos dos valores.
- // Procura cada valor em toda a janela da tabela de penalidade, usando os rótulos como âncora.
- const tableStart=Math.max(upper.lastIndexOf('VALOR INTEGRAL'),upper.lastIndexOf('PENALIDADE APLICADA'));
- const tableText=tableStart>=0?text.slice(tableStart,tableStart+1600):text;
- if(!integral){
-   const m=tableText.match(/VALOR\s+INTEGRAL[\s:|.-]{0,80}(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
-   if(m)integral=m[1];
- }
- if(!discounted){
-   const m=tableText.match(/VALOR\s+COM\s+DESCONTO[\s:|.-]{0,100}(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
-   if(m)discounted=m[1];
- }
+ const allMoney=[...text.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g)].map(m=>({value:m[1],index:m.index}));
+ const positions=[upper.lastIndexOf('VALOR INTEGRAL'),upper.lastIndexOf('VALOR COM DESCONTO'),upper.lastIndexOf('PENALIDADE APLICADA')].filter(x=>x>=0);
+ const tableStart=positions.length?Math.min(...positions):0;const duePos=upper.lastIndexOf('DATA DE VENCIMENTO');
+ const tableEnd=duePos>tableStart?Math.min(text.length,duePos+500):Math.min(text.length,tableStart+1800);
+ const tableMoney=allMoney.filter(m=>m.index>=tableStart&&m.index<tableEnd);
+ if((!integral||!discounted)&&tableMoney.length>=2){if(!integral)integral=tableMoney[0].value;if(!discounted)discounted=tableMoney[1].value;}
  set('ait',ait);
  set('numeroMulta',multa);
  set('tipoOcorrencia','MULTA');
@@ -403,28 +366,19 @@ function parsePenaltyPdf(raw){
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  // O campo Veículo recebe somente a placa destacada no print 2.
  if(plate)set('veiculo',plate);
- // Fornecedor vem do órgão autuador do próprio documento, junto ao CNPJ quando disponível.
- const supplierMatch=text.match(/\b(DEPARTAMENTO\s+DE\s+ESTRADAS\s+E\s+RODAGENS?)\b/i);
- if(supplierMatch){
-   const supplierName=clean(supplierMatch[1]).toLocaleUpperCase('pt-BR');
-   const supplierWindow=text.slice(supplierMatch.index, supplierMatch.index+260);
-   const supplierCnpj=supplierWindow.match(/\b(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})\b/);
-   set('fornecedor',supplierName+(supplierCnpj?' '+supplierCnpj[1].replace(/\D/g,''):''));
- }
+ // Fornecedor: capturar o valor associado ao rótulo Órgão Autuador no próprio documento.
+ const supplierLabel=/Órg[aã]o\s+Autuador/i.exec(text);
+ if(supplierLabel){const w=text.slice(supplierLabel.index+supplierLabel[0].length,supplierLabel.index+supplierLabel[0].length+240);let supplier=clean(w.split(/\b(?:Código\s+do\s+Órgão|Auto\s+(?:de|da)\s+Infração|Data\s+da\s+Postagem)\b/i)[0]);supplier=supplier.replace(/^[\s:|.-]+/,'').replace(/\s*\|\s*/g,' ').trim();if(supplier&&!/^(?:CÓDIGO|DATA|HORA|PLACA)$/i.test(supplier))set('fornecedor',supplier);}
+ if(!document.getElementById('fornecedor')?.value.trim()&&org)set('fornecedor',org);
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',penalty);
- // Mapeamento confirmado: Valor líquido = Valor Integral (total da multa);
- // Des. valor = Valor Integral - Valor com Desconto; Prejuízo valor = Valor líquido - Des. valor.
+ // Valor líquido = Valor Integral; Des. valor = Integral - Valor com Desconto;
+ // Prejuízo valor = Valor líquido - Des. valor (equivale a Valor com Desconto).
  const moneyNumber=v=>Number(String(v||'').replace(/\./g,'').replace(',','.'));
  const moneyBRL=v=>'R$ '+moneyNumber(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
  if(integral)set('valorLiquido',moneyBRL(integral));
- if(integral&&discounted){
-   const total=moneyNumber(integral);
-   const withDiscount=moneyNumber(discounted);
-   const reduction=total-withDiscount;
-   set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));
-   set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));
- }
+ if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
+
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
  const required=[['empresa',company],['veiculo',plate],['localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ')],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
