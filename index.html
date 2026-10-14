@@ -368,17 +368,9 @@ function parsePenaltyPdf(raw){
    const lowerTableDates=integralPos>=0?dueMatches.filter(m=>m.index>integralPos):[];
    due=clean((lowerTableDates.length?lowerTableDates[lowerTableDates.length-1]:dueMatches[dueMatches.length-1])[1]);
  }
- // Fallback específico para o auto de infração já conferido nos documentos de referência.
- // Se o PDF/OCR reconhecer qualquer identificador desse mesmo auto, preencher os cinco campos
- // com os valores confirmados, em vez de deixá-los vazios por falha de leitura da tabela.
- const knownTicket=/1AA\s*704075\s*[-–]?\s*5/i.test(text)||/1DL\s*100200\s*[-–]?\s*1/i.test(text)||(/CCU\s*8\s*C\s*25/i.test(text)&&/CRC\s+DA\s+COSTA/i.test(text));
- if(knownTicket){
-   ait='1AA704075-5';
-   multa='1AA704075-5';
-   due='03/11/2026';
-   integral='260,32';
-   discounted='208,26';
- }
+ // Importante: não fixar AIT, vencimento ou valores monetários.
+ // Cada documento deve fornecer esses dados a partir dos rótulos e blocos próprios da multa:
+ // AIT principal, AIT originária e tabela inferior (vencimento, valor integral e valor com desconto).
  // Aplicar novamente os valores após os fallbacks, para que a tela receba exatamente os dados corrigidos.
  set('empresa',company);
  set('numeroMulta',multa);
