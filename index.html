@@ -96,7 +96,7 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label>Veículo <span class="field-hint">PLACA - MARCA/MODELO</span><input id="veiculo" placeholder="Será preenchido pelo PDF"></label>
     <label>Motorista <span class="manual-tag">Manual</span><input id="motorista" placeholder="Preencher manualmente"></label>
     <label>Fornecedor <span class="field-hint">Conforme órgão autuador</span><input id="fornecedor" placeholder="Será preenchido se corresponder ao DER"></label>
-    <label>Cod infração <span class="manual-tag">Manual</span><input id="codInfracao" placeholder="Preencher manualmente"></label>
+    <label>Cod infração <span class="field-hint">Campo “Cód. Infração” na tipificação da penalidade aplicada</span><input id="codInfracao" placeholder="Será preenchido pelo PDF"></label>
     <label>N° multa <span class="field-hint">“Auto da Infração”, ao lado de “Data da Postagem”</span><input id="numeroMulta" placeholder="Será preenchido pelo PDF"></label>
     <label>Chegou apenas notificação <span class="manual-tag">Manual</span><input id="apenasNotificacao" placeholder="Preencher manualmente"></label>
     <label class="wide">Local da multa/sinistro <span class="field-hint">Local/Rodovia + KM + Município da infração</span><input id="localMulta" placeholder="Será montado pelo PDF"></label>
@@ -138,9 +138,9 @@ const uploadBox=document.getElementById('uploadBox');
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
 pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
- const autoFieldIds=['empresa','veiculo','fornecedor','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
- const targetIds=['empresa','veiculo','fornecedor','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
- const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
+ const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
+ const targetIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
+ const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
  const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
@@ -642,6 +642,64 @@ function parsePenaltyPdf(raw){
    }
  }
 
+ // Código da infração da penalidade aplicada:
+ // usar o rótulo específico "Cód. Infração" no quadro inferior, e não o campo superior
+ // "Código da Infração" da tipificação originária (na multa de teste, o outro código é 570 3).
+ let codInfracao='';
+ const penaltySectionRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i;
+ const penaltySectionRow=sourceRows.findIndex(row=>penaltySectionRe.test(row));
+ let codeLabelRow=-1;
+ const codeLabelRe=/\bC[oó]d\.?\s*Infra[cç][aã]o\b/i;
+ if(penaltySectionRow>=0){
+   const sectionLimit=Math.min(sourceRows.length,penaltySectionRow+24);
+   for(let i=penaltySectionRow;i<sectionLimit;i++){
+     if(codeLabelRe.test(sourceRows[i])){codeLabelRow=i;break;}
+   }
+ }
+ if(codeLabelRow<0){
+   for(let i=sourceRows.length-1;i>=0;i--){
+     if(codeLabelRe.test(sourceRows[i])){codeLabelRow=i;break;}
+   }
+ }
+ const normalizeInfractionCode=value=>{
+   const s=String(value||'').replace(/[–—−]/g,'-');
+   let m=s.match(/\b(\d{2,4})\s*-\s*(\d{1,2})\b/);
+   if(!m)m=s.match(/\b(\d{2,4})\s+(\d{1,2})\b/);
+   return m?m[1]+'-'+m[2]:'';
+ };
+ if(codeLabelRow>=0){
+   const labelText=sourceRows[codeLabelRow];
+   const labelMatch=codeLabelRe.exec(labelText);
+   if(labelMatch)codInfracao=normalizeInfractionCode(labelText.slice(labelMatch.index+labelMatch[0].length));
+   if(!codInfracao){
+     for(let i=codeLabelRow+1;i<Math.min(sourceRows.length,codeLabelRow+5);i++){
+       const strict=sourceRows[i].match(/\b(\d{2,4})\s*[-–—−]\s*(\d{1,2})\b/);
+       if(strict){codInfracao=strict[1]+'-'+strict[2];break;}
+       const loose=normalizeInfractionCode(sourceRows[i]);
+       if(loose){codInfracao=loose;break;}
+     }
+   }
+   if(!codInfracao){
+     const valueRows=sourceRows.slice(codeLabelRow,Math.min(sourceRows.length,codeLabelRow+3)).join(' ');
+     const labelInJoined=codeLabelRe.exec(valueRows);
+     if(labelInJoined){
+       const afterLabel=valueRows.slice(labelInJoined.index+labelInJoined[0].length);
+       const beforeOtherColumn=afterLabel.split(/\b(?:Desdob\.?|Base\s+Legal|Artigo|Inciso|Data|Hora|Pt\.?\s*Lim)\b/i)[0];
+       codInfracao=normalizeInfractionCode(beforeOtherColumn);
+     }
+   }
+ }
+ if(!codInfracao){
+   const lowerPenaltyAt=upper.search(penaltySectionRe);
+   const lowerPenaltyText=lowerPenaltyAt>=0?text.slice(lowerPenaltyAt,lowerPenaltyAt+1800):text;
+   const codeLabelMatches=[...lowerPenaltyText.matchAll(/\bC[oó]d\.?\s*Infra[cç][aã]o\b/ig)];
+   for(const m of codeLabelMatches){
+     const chunk=lowerPenaltyText.slice(m.index+m[0].length,m.index+m[0].length+100);
+     const code=normalizeInfractionCode(chunk.split(/\b(?:Desdob\.?|Base\s+Legal|Artigo|Inciso|Data|Hora|Pt\.?\s*Lim)\b/i)[0]);
+     if(code){codInfracao=code;break;}
+   }
+ }
+ 
  // O PDF pode separar os rótulos e os valores em colunas.
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
@@ -661,6 +719,7 @@ function parsePenaltyPdf(raw){
  }
  set('ait',ait);
  set('numeroMulta',multa);
+ set('codInfracao',codInfracao);
  set('tipoOcorrencia','MULTA');
  set('dataInfracao',infDate);
  set('aitOriginaria',origin);
@@ -759,12 +818,12 @@ function parsePenaltyPdf(raw){
  if(integral)set('valorLiquido',moneyBRL(integral));
  if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
 
- const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
- const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['localMulta',local&&km&&municipality?[local,'KM '+km,municipality].join(' '):''],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
+ const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,codInfracao,integral,discounted].filter(Boolean).length;
+ const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['codInfracao',codInfracao],['localMulta',local&&km&&municipality?[local,'KM '+km,municipality].join(' '):''],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
  parseStatus.className='parse-status '+(missing.length?'error':'success');
  parseStatus.textContent=missing.length
-   ?'Leitura parcial. Não reconheci com segurança: '+missing.map(id=>({'empresa':'Empresa','veiculo':'Veículo/placa','fornecedor':'Fornecedor/órgão autuador','localMulta':'Local da multa/sinistro','historicoMulta':'Histórico da multa','valorLiquido':'Valor líquido','descontoValor':'Des. valor','prejuizoValor':'Prejuízo valor','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira esses campos manualmente.'
+   ?'Leitura parcial. Não reconheci com segurança: '+missing.map(id=>({'empresa':'Empresa','veiculo':'Veículo/placa','fornecedor':'Fornecedor/órgão autuador','codInfracao':'Cod infração','localMulta':'Local da multa/sinistro','historicoMulta':'Histórico da multa','valorLiquido':'Valor líquido','descontoValor':'Des. valor','prejuizoValor':'Prejuízo valor','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira esses campos manualmente.'
    :'Os sete campos destacados foram reconhecidos. Confira os dados antes de lançar.';
  return found;
 }
