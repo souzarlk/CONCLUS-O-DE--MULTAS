@@ -138,7 +138,7 @@ pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput
  let found=raw.trim()?parsePenaltyPdf(raw):0;
  // Os sete campos marcados nos prints são obrigatórios para considerar a leitura adequada.
  // Não usar a contagem de qualquer texto reconhecido como indicador de sucesso.
- const targetIds=['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','prejuizoValor','descontoValor','numeroMulta'];
+ const targetIds=['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const missingTargets=()=>{
    const missing=targetIds.filter(id=>!document.getElementById(id)?.value.trim());
    // Só exigir fornecedor quando o próprio documento indicar o DER.
@@ -168,7 +168,7 @@ pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput
    const stillMissing=missingTargets();
    if(stillMissing.length){
      parseStatus.className='parse-status error';
-     parseStatus.textContent='Não foi possível identificar todos os campos destacados. Campos não reconhecidos: '+stillMissing.map(id=>({'empresa':'Empresa','veiculo':'Veículo','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira a imagem e complete-os manualmente.';
+     parseStatus.textContent='Não foi possível identificar todos os campos destacados. Campos não reconhecidos: '+stillMissing.map(id=>({'empresa':'Empresa','veiculo':'Veículo','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento','historicoMulta':'Histórico da multa','prejuizoValor':'Valor integral','descontoValor':'Valor com desconto','numeroMulta':'N° multa','fornecedor':'Fornecedor'}[id]||id)).join(', ')+'. Confira a imagem e complete-os manualmente.';
    }
  }
  }catch(e){parseStatus.className='parse-status error';parseStatus.textContent='Não foi possível ler o PDF: '+(e&&e.message?e.message:'arquivo inválido');}});
@@ -186,22 +186,28 @@ function parsePenaltyPdf(raw){
    let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-45),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;const val=clean(m[1]);if(/^(?:ORIGIN|ORIGINARIA|INFRA[CÇ]AO|DATA|CODIGO)$/i.test(val))continue;return val}
    return '';
  };
- // N° AIT: o print 5 marca "Auto de Infração" principal (1AA704075-5).
- // Aceitar texto nativo e OCR, e excluir explicitamente a etiqueta "Originária".
+ // N° AIT principal: tolerar texto nativo/OCR e a ordem em que o PDF entrega as colunas.
+ // Procurar o identificador logo após cada rótulo e nunca aceitar o AIT originário.
  let ait='';
- const aitLabelRe=/Auto\s+(?:de|da)\s+Infra[cç][aã]o\s*[:.]?\s*/ig;
+ const aitLabelRe=/Auto\s+(?:de|da)\s+Infra[cç][aã]o/ig;
  let aitLabel;
  while((aitLabel=aitLabelRe.exec(text))!==null){
-   const after=text.slice(aitLabelRe.lastIndex,aitLabelRe.lastIndex+90);
-   if(/^\s*Origin[aá]ria\b/i.test(after))continue;
-   const candidate=after.match(/^([A-Z0-9][A-Z0-9.\/-]{4,})/i);
-   if(candidate){ait=clean(candidate[1]);break;}
+   const before=text.slice(Math.max(0,aitLabel.index-45),aitLabel.index);
+   const after=text.slice(aitLabelRe.lastIndex,aitLabelRe.lastIndex+140);
+   if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
+   // O número pode vir depois de "Nº"/"N°" e de separadores inseridos pelo PDF.
+   const candidate=after.match(/^\s*(?:N[º°o.]?\s*)?[:#.-]?\s*([A-Z0-9][A-Z0-9.\/-]{5,})/i);
+   if(candidate&&!/^(?:ORIGINARIA|ORIGIN|INFRACAO|DATA|CODIGO)$/i.test(candidate[1])){ait=clean(candidate[1]);break;}
  }
- // Se o texto veio em outra ordem, capturar o AIT principal excluindo explicitamente o rótulo originário.
  if(!ait){
-   const allAit=[...text.matchAll(/Auto\s+(?:de|da)\s+Infra[cç][aã]o\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig)];
-   const main=allAit.find(m=>!/Origin[aá]ria\s*[:.]?\s*$/i.test(text.slice(Math.max(0,m.index-25),m.index))&&!/Origin[aá]ria/i.test(text.slice(m.index,m.index+70)));
-   if(main)ait=clean(main[1]);
+   const allAit=[...text.matchAll(/Auto\s+(?:de|da)\s+Infra[cç][aã]o/ig)];
+   for(const m of allAit){
+     const before=text.slice(Math.max(0,m.index-45),m.index);
+     const after=text.slice(m.index+m[0].length,m.index+m[0].length+160);
+     if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
+     const candidate=after.match(/(?:^|\s|[:#.-])(?:N[º°o.]?\s*)?([A-Z0-9][A-Z0-9.\/-]{5,})/i);
+     if(candidate&&!/^(?:ORIGINARIA|ORIGIN|INFRACAO|DATA|CODIGO)$/i.test(candidate[1])){ait=clean(candidate[1]);break;}
+   }
  }
  const origin=firstMatch([
    /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
@@ -273,15 +279,28 @@ function parsePenaltyPdf(raw){
    dm=labeled.find(m=>/MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O/i.test(text.slice(Math.max(0,m.index-500),m.index+260)))||null;
  }
  if(dm)infDate=dm[1]+' - '+dm[2]+(dm[3]?':'+dm[3]:'');
- // O PDF tem dois rótulos "Data de Vencimento"; o print 7 indica o último,
- // localizado na tabela inferior junto a "Valor Integral" e "Valor com Desconto".
- const dueMatches=[...text.matchAll(/Data\s+de\s+Vencimento\s*[:.]?\s*(\d{2}[\/.]\d{2}[\/.]\d{4})/ig)];
+ // O print 7 marca o vencimento na tabela inferior. O PDF pode separar o rótulo
+ // da data por colunas, por isso procurar a data numa janela após cada rótulo.
+ const dueLabelRe=/Data\s+de\s+Vencimento/ig;
+ const dueMatches=[];
+ let dueLabel;
+ while((dueLabel=dueLabelRe.exec(text))!==null){
+   const windowText=text.slice(dueLabel.index+dueLabel[0].length,dueLabel.index+dueLabel[0].length+260);
+   const dateMatch=windowText.match(/(?:^|\D)(\d{2}[\/.]\d{2}[\/.]\d{4})/);
+   if(dateMatch)dueMatches.push({index:dueLabel.index,date:dateMatch[1].replace(/\./g,'/')});
+ }
  let due='';
  if(dueMatches.length){
-   // O print 7 marca a data na tabela inferior, próxima de Valor Integral/Valor com Desconto.
    const integralPos=upper.lastIndexOf('VALOR INTEGRAL');
    const lowerTableDates=dueMatches.filter(m=>integralPos>=0&&m.index>integralPos);
-   due=clean((lowerTableDates.length?lowerTableDates[lowerTableDates.length-1]:dueMatches[dueMatches.length-1])[1]);
+   due=clean((lowerTableDates.length?lowerTableDates[lowerTableDates.length-1]:dueMatches[dueMatches.length-1]).date);
+ }
+ // Fallback para PDFs/OCR que colocam o rótulo e a data fora da mesma janela.
+ if(!due){
+   const dates=[...text.matchAll(/(\d{2}[\/.]\d{2}[\/.]\d{4})/g)];
+   const integralPos=upper.lastIndexOf('VALOR INTEGRAL');
+   const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
+   if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
  // Somente estes dois campos foram ajustados; os demais campos mantêm a lógica anterior.
  // Local: extrair os valores rotulados e montar Rodovia + KM + Município.
