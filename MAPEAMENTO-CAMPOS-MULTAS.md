@@ -8,13 +8,17 @@
 1. O navegador abre o documento com PDF.js.
 2. Em cada página, os itens de texto são agrupados por coordenada vertical e ordenados da esquerda para a direita.
 3. O parser lê rótulos e blocos descritos neste documento.
-4. Se faltarem campos essenciais, o sistema renderiza as páginas em alta resolução e tenta OCR com Tesseract em português.
-5. Se ainda houver campos sem leitura confiável, o sistema informa leitura parcial e indica os campos que precisam de conferência.
+4. Se faltarem campos essenciais, renderizar as páginas em alta resolução (escala 3,6) e executar OCR com Tesseract em português.
+5. Se ainda faltarem campos, fazer uma segunda passada sobre a mesma página com contraste reforçado e binarização calculada a partir da imagem, para recuperar texto de digitalização com baixo contraste ou letras pequenas.
+6. Comparar as extrações pela quantidade de campos essenciais reconhecidos; priorizar a passada mais completa e preencher apenas campos ainda vazios/incompletos com valores de outra tentativa. Nunca carregar valores automáticos da multa anterior.
+7. Se ainda houver campos sem leitura confiável, informar leitura parcial e indicar os campos que precisam de conferência.
 
 ### Imagem JPEG/PNG
 1. O arquivo é lido diretamente por Tesseract OCR em português.
-2. O texto reconhecido segue para a mesma função parsePenaltyPdf usada pelo leitor de PDF.
-3. Assim, as regras de mapeamento são compartilhadas por PDF e imagem; mudanças no mapeamento devem ser feitas no parser compartilhado.
+2. Se faltarem campos essenciais, criar uma versão ampliada da imagem (limitada a cerca de 3.800 px no maior lado), aplicar contraste/binarização e repetir o OCR.
+3. Comparar as tentativas e usar a leitura com mais campos essenciais identificados, preenchendo somente o que ainda estiver vazio ou incompleto.
+4. O texto reconhecido segue para a mesma função parsePenaltyPdf usada pelo leitor de PDF.
+5. Assim, as regras de mapeamento são compartilhadas por PDF e imagem; mudanças no mapeamento devem ser feitas no parser compartilhado.
 
 ### Princípios obrigatórios
 - Os **valores mudam**, mas a origem semântica do campo é a mesma.
