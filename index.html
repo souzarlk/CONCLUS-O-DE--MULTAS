@@ -186,49 +186,33 @@ function parsePenaltyPdf(raw){
    let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-45),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;const val=clean(m[1]);if(/^(?:ORIGIN|ORIGINARIA|INFRA[CÇ]AO|DATA|CODIGO)$/i.test(val))continue;return val}
    return '';
  };
- // N° AIT principal: tolerar texto nativo/OCR e a ordem em que o PDF entrega as colunas.
- // Procurar o identificador logo após cada rótulo e nunca aceitar o AIT originário.
- let ait='';
+ // O AIT é um identificador estruturado (ex.: 1AA704075-5), não uma palavra
+ // que apareça perto do rótulo. Isso impede capturar "Postagem" ou outros títulos.
+ const aitTokenRe=/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/ig;
  const aitLabelRe=/Auto\s+(?:de|da)\s+Infra[cç][aã]o/ig;
+ let ait='';
  let aitLabel;
  while((aitLabel=aitLabelRe.exec(text))!==null){
-   const before=text.slice(Math.max(0,aitLabel.index-45),aitLabel.index);
-   const after=text.slice(aitLabelRe.lastIndex,aitLabelRe.lastIndex+140);
+   const before=text.slice(Math.max(0,aitLabel.index-60),aitLabel.index);
+   const after=text.slice(aitLabelRe.lastIndex,aitLabelRe.lastIndex+260);
    if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
-   // O número pode vir depois de "Nº"/"N°" e de separadores inseridos pelo PDF.
-   const candidate=after.match(/^\s*(?:N[º°o.]?\s*)?[:#.-]?\s*([A-Z0-9][A-Z0-9.\/-]{5,})/i);
-   if(candidate&&!/^(?:ORIGINARIA|ORIGIN|INFRACAO|DATA|CODIGO)$/i.test(candidate[1])){ait=clean(candidate[1]);break;}
+   const token=aitTokenRe.exec(after);
+   aitTokenRe.lastIndex=0;
+   if(token){ait=clean(token[1]).toUpperCase();break;}
  }
  if(!ait){
-   const allAit=[...text.matchAll(/Auto\s+(?:de|da)\s+Infra[cç][aã]o/ig)];
-   for(const m of allAit){
-     const before=text.slice(Math.max(0,m.index-45),m.index);
-     const after=text.slice(m.index+m[0].length,m.index+m[0].length+160);
-     if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
-     const candidate=after.match(/(?:^|\s|[:#.-])(?:N[º°o.]?\s*)?([A-Z0-9][A-Z0-9.\/-]{5,})/i);
-     if(candidate&&!/^(?:ORIGINARIA|ORIGIN|INFRACAO|DATA|CODIGO)$/i.test(candidate[1])){ait=clean(candidate[1]);break;}
-   }
+   const candidates=[...text.matchAll(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/ig)];
+   const main=candidates.find(m=>!/Origin[aá]ria/i.test(text.slice(Math.max(0,m.index-80),m.index+20)));
+   if(main)ait=clean(main[1]).toUpperCase();
  }
  const origin=firstMatch([
    /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
    /Auto\s+(?:de|da)\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
  ]);
- let multa='';
- // O print 5 mostra "Auto de Infração" e o N° multa corresponde a esse número principal.
- // No layout do documento, o rótulo pode aparecer como "Auto da Infração" ou sem acento.
- if(ait)multa=ait;
- const postingIndex=upper.indexOf('DATA DA POSTAGEM');
- if(postingIndex>=0){
-   const before=text.slice(Math.max(0,postingIndex-260),postingIndex);
-   const nums=[...before.matchAll(/Auto\s+da?\s+Infração\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig)];
-   const nums2=[...before.matchAll(/Auto\s+da?\s+Infracao\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig)];
-   const all=nums.concat(nums2).sort((a,b)=>a.index-b.index);
-   if(all.length)multa=clean(all[all.length-1][1]);
- }
- if(!multa){
-   const candidates=[...text.matchAll(/Auto\s+da?\s+Infração\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig),...text.matchAll(/Auto\s+da?\s+Infracao\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/ig)].sort((a,b)=>a.index-b.index);
-   multa=candidates.map(m=>clean(m[1])).find(v=>v!==origin&&v!==ait)||'';
- }
+ // O campo N° multa usa o mesmo AIT principal indicado no print 5.
+ // Não procurar "Auto da Infração" perto de "Data da Postagem": o PDF
+ // pode linearizar as colunas e fazer a palavra "Postagem" parecer um valor.
+ let multa=ait;
  // A empresa fica no bloco "PESSOA JURIDICA PROPRIETARIA DO VEICULO NA DATA DA INFRAÇÃO ORIGINARIA".
  // Localiza esse cabeçalho e lê o conteúdo depois do rótulo "Nome", sem fixar uma razão social específica.
  const companyHeaderRe=/PESSOA\s+JUR[IÍ]DICA\s+PROPRIET[AÁ]RIA\s+DO\s+VE[IÍ]CULO\s+NA\s+DATA\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i;
@@ -302,34 +286,46 @@ function parsePenaltyPdf(raw){
    const lowerDates=dates.filter(m=>integralPos>=0&&m.index>integralPos);
    if(lowerDates.length)due=clean(lowerDates[lowerDates.length-1][1].replace(/\./g,'/'));
  }
- // Somente estes dois campos foram ajustados; os demais campos mantêm a lógica anterior.
- // Local: extrair os valores rotulados e montar Rodovia + KM + Município.
- const localLabelMatch=/Local\s*\/\s*Rodovia\s*[:.]?/i.exec(text);
+ // Local da multa: combinar os três campos marcados, mesmo quando o PDF
+ // entrega o texto em ordem de colunas e não mantém rótulo e valor juntos.
  let local='';
  let km='';
  let municipality='';
- if(localLabelMatch){
-   const localChunk=text.slice(localLabelMatch.index+localLabelMatch[0].length,localLabelMatch.index+localLabelMatch[0].length+260);
-   const roadMatch=localChunk.match(/\b((?:SP|BR)\s*[-]?\s*\d{1,4})\b/i);
-   if(roadMatch)local=clean(roadMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
-   const kmMatch=localChunk.match(/\bKM\s*[:.]?\s*(\d{1,5}(?:\s*\+\s*\d{1,3})?)\b/i);
-   if(kmMatch)km=clean(kmMatch[1]).replace(/\s+/g,' ');
- }
- const municipalityLabelMatch=/Munic[ií]pio\s+da\s+Infra[cç][aã]o\s*[:.]?/i.exec(text);
+ const roadMatch=text.match(/\b((?:SP|BR)\s*[-]?\s*\d{1,4})\b/i);
+ if(roadMatch)local=clean(roadMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+ const kmMatch=text.match(/\bKM\s*[:.]?\s*(\d{1,5}(?:\s*\+\s*\d{1,3})?)\b/i);
+ if(kmMatch)km=clean(kmMatch[1]).replace(/\s+/g,' ');
+ const municipalityLabelMatch=/Munic[ií]pio\s+da\s+Infra[cç][aã]o/i.exec(text);
  if(municipalityLabelMatch){
-   const afterMunicipality=text.slice(municipalityLabelMatch.index+municipalityLabelMatch[0].length,municipalityLabelMatch.index+municipalityLabelMatch[0].length+120);
-   const municipalityValue=afterMunicipality.match(/^\s*([A-ZÀ-Ü][A-ZÀ-Ü .'-]{2,45}?)(?=\s+(?:UF\b|C[oó]digo\b|Marca\b|Modelo\b|Esp[eé]cie\b|Tipo\b|Pa[ií]s\b|Placa\b|Auto\b)|$)/i);
-   if(municipalityValue)municipality=clean(municipalityValue[1]).toLocaleUpperCase('pt-BR');
+   const around=text.slice(Math.max(0,municipalityLabelMatch.index-180),Math.min(text.length,municipalityLabelMatch.index+260));
+   // Prioriza cidade em posição de valor; aceita município antes ou depois do rótulo
+   // conforme a ordem que o extrator do PDF usar.
+   const cityCandidates=[...around.matchAll(/\b([A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}(?:\s+[A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}){0,3})\b/g)]
+     .map(m=>clean(m[1]).toLocaleUpperCase('pt-BR'))
+     .filter(v=>! /^(MUNICIPIO|DA|INFRACAO|UF|CODIGO|MARCA|MODELO|ESPECIE|TIPO|PAIS|PLACA|AUTO|PENALIDADE|APLICADA|LOCAL|RODOVIA|SP|BR|KM)$/i.test(v));
+   const after=text.slice(municipalityLabelMatch.index+municipalityLabelMatch[0].length,municipalityLabelMatch.index+municipalityLabelMatch[0].length+100);
+   const afterCity=after.match(/^\s*[:|.-]?\s*([A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}(?:\s+[A-ZÀ-Ü][A-ZÀ-Ü'-]{2,}){0,3})\b/i);
+   if(afterCity)municipality=clean(afterCity[1]).toLocaleUpperCase('pt-BR');
+   if(!municipality&&cityCandidates.length){
+     municipality=cityCandidates.find(v=>v!=='SANTOS' || /SANTOS/i.test(around))||cityCandidates[0];
+   }
  }
- // Histórico: capturar a descrição após "Penalidade Aplicada", parando antes dos campos seguintes.
+ // Histórico: o texto pode aparecer antes do rótulo quando o PDF é lido por colunas.
+ // Procurar a descrição de penalidade, nunca o cabeçalho com placa/UF/município/modelo.
  let penalty='';
- const penaltyLabelMatch=/Penalidade\s+Aplicada\s*[:.]?/i.exec(text);
+ const penaltyLabelMatch=/Penalidade\s+Aplicada/i.exec(text);
  if(penaltyLabelMatch){
-   let penaltyChunk=text.slice(penaltyLabelMatch.index+penaltyLabelMatch[0].length,penaltyLabelMatch.index+penaltyLabelMatch[0].length+260);
-   penaltyChunk=penaltyChunk.replace(/^\s*(?:[-:|]+\s*)?/,'');
-   const stop=/\s+(?=(?:C[oó]d(?:igo)?\.?\s*Infra[cç][aã]o|Valor\s+Integral|Valor\s+com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem)\b)/i.exec(penaltyChunk);
-   if(stop)penaltyChunk=penaltyChunk.slice(0,stop.index);
-   penalty=clean(penaltyChunk);
+   const start=penaltyLabelMatch.index;
+   const around=text.slice(Math.max(0,start-320),Math.min(text.length,start+500));
+   const legal=around.match(/(?:MULTA\s+POR\s+N[ÃA]O\s+IDENT\.?\s*COND\.?\s*INFRATOR\s+IMPOSTA\s+[ÀA]\s+PESSOA\s+JUR[IÍ]DICA|MULTA\s+POR\s+N[ÃA]O\s+IDENTIFICA[CÇ][ÃA]O\s+DO\s+CONDUTOR\s+INFRATOR\s+IMPOSTA\s+[ÀA]\s+PESSOA\s+JUR[IÍ]DICA)/i);
+   if(legal)penalty=clean(legal[0]);
+   if(!penalty){
+     let penaltyChunk=text.slice(start+penaltyLabelMatch[0].length,start+penaltyLabelMatch[0].length+260);
+     const stop=/\s+(?=(?:C[oó]d(?:igo)?\.?\s*Infra[cç][aã]o|Valor\s+Integral|Valor\s+com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem)\b)/i.exec(penaltyChunk);
+     if(stop)penaltyChunk=penaltyChunk.slice(0,stop.index);
+     penaltyChunk=clean(penaltyChunk);
+     if(penaltyChunk && !/^(?:Placa|UF|Munic[ií]pio|Marca|Modelo|Esp[eé]cie|Tipo|Pa[ií]s)\b/i.test(penaltyChunk))penalty=penaltyChunk;
+   }
  }
  // Valores conforme a tabela marcada: prejuízo = Valor Integral; desconto = Integral - Com Desconto.
  // Busca os valores perto dos rótulos, tolerando variações de acento e OCR.
