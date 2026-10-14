@@ -330,8 +330,22 @@ function parsePenaltyPdf(raw){
    const m=localContext.match(/\bSP\s*\d{1,4}\s+(\d{1,5})\s+\d{1,5}\s+(?:NORTE|SUL|LESTE|OESTE)\b/i);
    if(m)km=clean(m[1]);
  }
+ if(localContext&&local&&km){
+   // Segunda tentativa ancorada na rodovia e no KM extraídos. O município fica após o
+   // sentido (SUL/NORTE etc.) e antes da UF, mesmo se o código/data forem separados pelo PDF.
+   const escapeRegex=value=>String(value||'').replace(/[.*+?^{}()|[\]\\]/g,'\\$&');
+   const roadPattern=escapeRegex(local).replace(/\s+/g,'\\s*');
+   const kmPattern=escapeRegex(km);
+   const anchoredCityRe=new RegExp('\\b'+roadPattern+'\\s+'+kmPattern+'\\s+(?:\\d{1,5}\\s+)?(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'\\b','i');
+   const anchoredCity=localContext.match(anchoredCityRe);
+   if(anchoredCity){
+     const candidate=clean(anchoredCity[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
+     if(candidate&&!/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[ÍI]PIO)$/i.test(candidate))municipality=candidate;
+   }
+ }
  if(!municipality&&localContext){
-   const afterDirectionRe=new RegExp('\\b(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'\\s+\\d{3,}\\b','i');
+   // Último fallback, também limitado à seção da localização da infração.
+   const afterDirectionRe=new RegExp('\\b(?:NORTE|SUL|LESTE|OESTE)\\s+(.+?)\\s+'+stateCode+'(?:\\s+\\d{3,})?\\b','i');
    const afterDirection=localContext.match(afterDirectionRe);
    if(afterDirection)municipality=clean(afterDirection[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
  }
