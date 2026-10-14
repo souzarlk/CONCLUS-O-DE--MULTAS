@@ -100,9 +100,9 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label class="wide">Local da multa/sinistro <span class="field-hint">Local/Rodovia + KM + Município da infração</span><input id="localMulta" placeholder="Será montado pelo PDF"></label>
     <label class="wide">Histórico multa <span class="field-hint">Campo “Penalidade Aplicada”</span><textarea id="historicoMulta" rows="2" placeholder="Será preenchido pelo PDF"></textarea></label>
     <label class="wide">Peças danificadas <span class="manual-tag">Manual</span><input id="pecasDanificadas" placeholder="Preencher manualmente"></label>
-    <label>Prejuízo valor <span class="field-hint">Valor integral</span><input id="prejuizoValor" placeholder="R$ 0,00"></label>
+    <label>Prejuízo valor <span class="field-hint">Valor líquido − Des. valor</span><input id="prejuizoValor" placeholder="R$ 0,00"></label>
     <label>Des. valor <span class="field-hint">Valor integral − valor com desconto</span><input id="descontoValor" placeholder="R$ 0,00"></label>
-    <label>Valor líquido <span class="field-hint">Valor com desconto</span><input id="valorLiquido" placeholder="R$ 0,00"></label>
+    <label>Valor líquido <span class="field-hint">Valor Integral</span><input id="valorLiquido" placeholder="R$ 0,00"></label>
     <label>Tipo ocorrência <span class="field-hint">Preenchimento automático fixo</span><input id="tipoOcorrencia" value="MULTA" readonly></label>
     <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
     <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
@@ -133,7 +133,7 @@ const uploadBox=document.getElementById('uploadBox');
 ['dragenter','dragover'].forEach(eventName=>uploadBox.addEventListener(eventName,event=>{event.preventDefault();event.stopPropagation();uploadBox.classList.add('drag-active');}));
 ['dragleave','dragend','drop'].forEach(eventName=>uploadBox.addEventListener(eventName,event=>{event.preventDefault();event.stopPropagation();uploadBox.classList.remove('drag-active');}));
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
-pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';try{if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('A biblioteca de leitura de imagens não carregou. Atualize a página e tente novamente.');const result=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo o texto da imagem… '+Math.round((m.progress||0)*100)+'%';}});parsePenaltyPdf(result.data.text);return;}if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,items:[item]};lines.push(line)}else line.items.push(item)}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | '));}let raw=pages.join(' | ');
+pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;['empresa','veiculo','fornecedor','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';try{if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('A biblioteca de leitura de imagens não carregou. Atualize a página e tente novamente.');const result=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo o texto da imagem… '+Math.round((m.progress||0)*100)+'%';}});parsePenaltyPdf(result.data.text);return;}if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,items:[item]};lines.push(line)}else line.items.push(item)}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | '));}let raw=pages.join(' | ');
  // PDFs digitalizados podem não conter texto selecionável. Nesses casos, seguir para o OCR visual.
  let found=raw.trim()?parsePenaltyPdf(raw):0;
  // Os sete campos marcados nos prints são obrigatórios para considerar a leitura adequada.
@@ -248,10 +248,12 @@ function parsePenaltyPdf(raw){
  ]);
  if(/^(?:Esp[eé]cie|Tipo|Pa[ií]s|Categoria)(?:\s+(?:Tipo|Pa[ií]s|Categoria))?$/i.test(model))model='';
  // Primeiro procurar o nome do órgão no documento inteiro. A extração por proximidade do rótulo falha quando o PDF organiza o texto em colunas.
- const org=firstMatch([
-   /(DEPARTAMENTO\s+DE\s+ESTRADAS\s+E?\s*RODAGENS?)/i,
-   /Órgão\s+Autuador\s*[:.]?\s*(.{4,110}?)(?=\s+(?:Código\s+do\s+Órgão|Codigo\s+do\s+Orgao|Código\s+Órgão)\b)/i
- ]);
+ const orgCandidates=[
+   text.match(/\b(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+S[AÃ]O\s+PAULO)?)\b/i),
+   text.match(/\b(\S.{3,90}?)\s+Órgão\s+Autuador\b/i),
+   text.match(/Órgão\s+Autuador\s*[:.]\s*([^|]{3,90}?)(?=\s+(?:Código|C[oó]digo|Data|Hora|Placa|Munic[ií]pio)\b|$)/i)
+ ];
+ const org=(()=>{for(const m of orgCandidates){const v=clean(m?.[1]||'');if(v&&!/^(?:Órgão\s+Autuador|Código(?:\s+do\s+Órgão)?|Data|Hora|Placa|Município)$/i.test(v)&&!/(?:Órgão\s+Autuador|Código\s+do\s+Órgão)$/i.test(v))return v;}return '';})();
  // Data/hora da infração: buscar perto do bloco "Município da Infração",
  // evitando confundir a data da postagem ou as datas da tabela de penalidade.
  let infDate='';
@@ -318,7 +320,7 @@ function parsePenaltyPdf(raw){
    }
  }
  // O PDF pode separar os rótulos e os valores em colunas.
- const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+500);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
+ const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
  const allMoney=[...text.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g)].map(m=>({value:m[1],index:m.index}));
@@ -326,7 +328,14 @@ function parsePenaltyPdf(raw){
  const tableStart=positions.length?Math.min(...positions):0;const duePos=upper.lastIndexOf('DATA DE VENCIMENTO');
  const tableEnd=duePos>tableStart?Math.min(text.length,duePos+500):Math.min(text.length,tableStart+1800);
  const tableMoney=allMoney.filter(m=>m.index>=tableStart&&m.index<tableEnd);
- if((!integral||!discounted)&&tableMoney.length>=2){if(!integral)integral=tableMoney[0].value;if(!discounted)discounted=tableMoney[1].value;}
+ // A tabela inferior contém dois valores distintos: integral e com desconto.
+ // Se a extração por rótulo atravessar colunas e repetir o mesmo número, priorizar os valores distintos da tabela.
+ const distinctTableMoney=[];
+ for(const item of tableMoney){if(!distinctTableMoney.some(x=>x.value===item.value))distinctTableMoney.push(item);}
+ if(distinctTableMoney.length>=2&&(!integral||!discounted||integral===discounted)){
+   integral=distinctTableMoney[0].value;
+   discounted=distinctTableMoney.find(x=>x.value!==integral)?.value||'';
+ }
  set('ait',ait);
  set('numeroMulta',multa);
  set('tipoOcorrencia','MULTA');
@@ -380,11 +389,11 @@ function parsePenaltyPdf(raw){
  if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
 
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,integral,discounted].filter(Boolean).length;
- const required=[['empresa',company],['veiculo',plate],['localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ')],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
+ const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ')],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
  parseStatus.className='parse-status '+(missing.length?'error':'success');
  parseStatus.textContent=missing.length
-   ?'Leitura parcial. Não reconheci com segurança: '+missing.map(id=>({'empresa':'Empresa','veiculo':'Veículo/placa','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira esses campos manualmente.'
+   ?'Leitura parcial. Não reconheci com segurança: '+missing.map(id=>({'empresa':'Empresa','veiculo':'Veículo/placa','fornecedor':'Fornecedor/órgão autuador','localMulta':'Local da multa/sinistro','historicoMulta':'Histórico da multa','valorLiquido':'Valor líquido','descontoValor':'Des. valor','prejuizoValor':'Prejuízo valor','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento'}[id])).join(', ')+'. Confira esses campos manualmente.'
    :'Os sete campos destacados foram reconhecidos. Confira os dados antes de lançar.';
  return found;
 }
