@@ -136,47 +136,168 @@ const uploadBox=document.getElementById('uploadBox');
 ['dragenter','dragover'].forEach(eventName=>uploadBox.addEventListener(eventName,event=>{event.preventDefault();event.stopPropagation();uploadBox.classList.add('drag-active');}));
 ['dragleave','dragend','drop'].forEach(eventName=>uploadBox.addEventListener(eventName,event=>{event.preventDefault();event.stopPropagation();uploadBox.classList.remove('drag-active');}));
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
-pdfInput.addEventListener('change',async()=>{const file=pdfInput.files&&pdfInput.files[0];if(!file)return;['empresa','veiculo','fornecedor','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});fileName.textContent=file.name;parseStatus.className='parse-status';parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';try{if(file.type.startsWith('image/')){if(!window.Tesseract)throw new Error('A biblioteca de leitura de imagens não carregou. Atualize a página e tente novamente.');const result=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo o texto da imagem… '+Math.round((m.progress||0)*100)+'%';}});parsePenaltyPdf(result.data.text);return;}if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;let pages=[];for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));const lines=[];for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,items:[item]};lines.push(line)}else line.items.push(item)}lines.sort((a,b)=>b.y-a.y);pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | '));}let raw=pages.join(' | ');
- // PDFs digitalizados podem não conter texto selecionável. Nesses casos, seguir para o OCR visual.
- let found=raw.trim()?parsePenaltyPdf(raw):0;
- // Os sete campos marcados nos prints são obrigatórios para considerar a leitura adequada.
- // Não usar a contagem de qualquer texto reconhecido como indicador de sucesso.
- const targetIds=['empresa','veiculo','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
- const missingTargets=()=>{
-   const missing=targetIds.filter(id=>!document.getElementById(id)?.value.trim());
-   const locationValue=document.getElementById('localMulta')?.value.trim()||'';
-   if(!/\bKM\s+\d{1,5}\b/i.test(locationValue)||locationValue.trim().split(/\s+/).length<5){if(!missing.includes('localMulta'))missing.push('localMulta');}
-   // Só exigir fornecedor quando o próprio documento indicar o DER.
-   const source=(document.getElementById('parseStatus')?.textContent||'')+' '+raw;
-   if(/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM/i.test(source)&&!document.getElementById('fornecedor')?.value.trim())missing.push('fornecedor');
+pdfInput.addEventListener('change',async()=>{
+ const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
+ const autoFieldIds=['empresa','veiculo','fornecedor','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
+ const targetIds=['empresa','veiculo','fornecedor','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
+ const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
+ const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+ const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
+ const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
+ const fieldUsable=(id,value)=>{
+   const v=String(value||'').trim();if(!v)return false;
+   if(id==='localMulta')return /\bKM\s+\d{1,5}\b/i.test(v)&&v.split(/\s+/).length>=5;
+   return true;
+ };
+ const missingFrom=(snapshot,sourceText)=>{
+   const missing=targetIds.filter(id=>!fieldUsable(id,snapshot[id]));
+   if(/(?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM|\bDER\b|Órg[aã]o\s+Autuador)/i.test(sourceText)&&!String(snapshot.fornecedor||'').trim()&&!missing.includes('fornecedor'))missing.push('fornecedor');
    return missing;
  };
- // Se faltar qualquer um dos sete campos destacados, refazer a leitura visual das páginas.
- if(missingTargets().length>0){
-   if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
-   parseStatus.className='parse-status';
-   parseStatus.textContent='Poucos campos identificados. Tentando reconhecimento visual (OCR)…';
-   const ocrPages=[];
-   for(let p=1;p<=pdf.numPages;p++){
-     const page=await pdf.getPage(p);
-     const viewport=page.getViewport({scale:2.5});
-     const canvas=document.createElement('canvas');
-     canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
-     const ctx=canvas.getContext('2d');
-     await page.render({canvasContext:ctx,viewport}).promise;
-     const result=await Tesseract.recognize(canvas,'por',{logger:m=>{if(m.status==='recognizing text')parseStatus.textContent='Reconhecendo página '+p+' de '+pdf.numPages+'… '+Math.round((m.progress||0)*100)+'%';}});
-     ocrPages.push(result.data.text||'');
-     canvas.width=0;canvas.height=0;
+ const candidates=[];const sourceTexts=[];
+ const addCandidate=ocrText=>{
+   sourceTexts.push(String(ocrText||''));
+   clearAutoFields();
+   if(String(ocrText||'').trim())parsePenaltyPdf(ocrText);
+   candidates.push({values:takeSnapshot(),text:String(ocrText||'')});
+   return chooseBest();
+ };
+ const chooseBest=()=>{
+   const allText=sourceTexts.join('\n');
+   const ranked=candidates.map((candidate,index)=>({candidate,index,score:targetIds.filter(id=>fieldUsable(id,candidate.values[id])).length})).sort((a,b)=>b.score-a.score||a.index-b.index);
+   const merged={...(ranked[0]?.candidate.values||takeSnapshot())};
+   // Fill only missing or incomplete values from another OCR pass; don't replace values
+   // recognized by the pass that produced the strongest set of required fields.
+   for(const id of autoFieldIds){
+     if(fieldUsable(id,merged[id]))continue;
+     const backup=ranked.find(entry=>fieldUsable(id,entry.candidate.values[id]));
+     if(backup)merged[id]=backup.candidate.values[id];
    }
-   const ocrRaw=ocrPages.join(' ');
-   const ocrFound=parsePenaltyPdf(ocrRaw);
-   const stillMissing=missingTargets();
-   if(stillMissing.length){
+   // The confirmed automatic mapping is always based on the chosen company.
+   merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(merged.empresa||'')?'FROTA CRC':'';
+   restoreSnapshot(merged);
+   const missing=missingFrom(merged,allText);
+   if(missing.length){
      parseStatus.className='parse-status error';
-     parseStatus.textContent='Não foi possível identificar todos os campos destacados. Campos não reconhecidos: '+stillMissing.map(id=>({'empresa':'Empresa','veiculo':'Veículo','localMulta':'Local da multa/sinistro','dataInfracao':'Data da infração','ait':'N° AIT','aitOriginaria':'N° AIT originária','dataVencimento':'Data de vencimento','historicoMulta':'Histórico da multa','prejuizoValor':'Valor integral','descontoValor':'Valor com desconto','numeroMulta':'N° multa','fornecedor':'Fornecedor'}[id]||id)).join(', ')+'. Confira a imagem e complete-os manualmente.';
+     parseStatus.textContent='Não foi possível identificar todos os campos destacados. Campos não reconhecidos: '+missing.map(id=>labels[id]||id).join(', ')+'. Confira a imagem e complete-os manualmente.';
+   }else{
+     parseStatus.className='parse-status success';
+     parseStatus.textContent='Leitura concluída. Confira os dados extraídos antes de lançar.';
    }
+   return missing;
+ };
+ const binaryCanvas=source=>{
+   const canvas=document.createElement('canvas');canvas.width=source.width;canvas.height=source.height;
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,0,0);
+   const image=ctx.getImageData(0,0,canvas.width,canvas.height);const pixels=image.data;
+   const gray=new Uint8Array(canvas.width*canvas.height);const histogram=new Uint32Array(256);
+   for(let i=0,p=0;i<pixels.length;i+=4,p++){
+     const g=Math.round(0.299*pixels[i]+0.587*pixels[i+1]+0.114*pixels[i+2]);
+     gray[p]=g;histogram[g]++;
+   }
+   const total=gray.length;let sum=0;for(let t=0;t<256;t++)sum+=t*histogram[t];
+   let sumBackground=0,weightBackground=0,bestVariance=-1,threshold=160;
+   for(let t=0;t<256;t++){
+     weightBackground+=histogram[t];if(!weightBackground)continue;
+     const weightForeground=total-weightBackground;if(!weightForeground)break;
+     sumBackground+=t*histogram[t];
+     const meanBackground=sumBackground/weightBackground,meanForeground=(sum-sumBackground)/weightForeground;
+     const variance=weightBackground*weightForeground*Math.pow(meanBackground-meanForeground,2);
+     if(variance>bestVariance){bestVariance=variance;threshold=t;}
+   }
+   threshold=Math.max(105,Math.min(215,threshold));
+   for(let p=0,i=0;p<gray.length;p++,i+=4){
+     const value=gray[p]<threshold?0:255;
+     pixels[i]=value;pixels[i+1]=value;pixels[i+2]=value;pixels[i+3]=255;
+   }
+   ctx.putImageData(image,0,0);return canvas;
+ };
+ const recognize=async(source,message)=>{
+   const result=await Tesseract.recognize(source,'por',{logger:m=>{
+     if(m.status==='recognizing text')parseStatus.textContent=message+' '+Math.round((m.progress||0)*100)+'%';
+   }});
+   return result.data.text||'';
+ };
+ clearAutoFields();fileName.textContent=file.name;parseStatus.className='parse-status';
+ parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';
+ try{
+   if(!window.Tesseract)throw new Error('A biblioteca de leitura não carregou. Atualize a página e tente novamente.');
+   if(file.type.startsWith('image/')){
+     const firstText=await recognize(file,'Reconhecendo a imagem…');
+     let missing=addCandidate(firstText);
+     if(missing.length){
+       parseStatus.className='parse-status';parseStatus.textContent='Faltam campos. Tentando uma leitura ampliada e com contraste reforçado…';
+       let bitmap=null,sourceCanvas=null,enhanced=null;
+       try{
+         bitmap=await createImageBitmap(file);
+         const maxDim=Math.max(bitmap.width,bitmap.height);
+         const scale=Math.max(1,Math.min(2.2,3800/maxDim));
+         sourceCanvas=document.createElement('canvas');
+         sourceCanvas.width=Math.round(bitmap.width*scale);sourceCanvas.height=Math.round(bitmap.height*scale);
+         sourceCanvas.getContext('2d').drawImage(bitmap,0,0,sourceCanvas.width,sourceCanvas.height);
+         bitmap.close?.();bitmap=null;
+         enhanced=binaryCanvas(sourceCanvas);
+         const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
+         missing=addCandidate(secondText);
+       }finally{
+         if(bitmap)bitmap.close?.();
+         if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
+         if(enhanced){enhanced.width=0;enhanced.height=0;}
+       }
+     }
+     chooseBest();return;
+   }
+   if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');
+   const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
+   let pages=[];
+   for(let p=1;p<=pdf.numPages;p++){
+     const page=await pdf.getPage(p);const tc=await page.getTextContent();
+     const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));
+     const lines=[];
+     for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,items:[item]};lines.push(line)}else line.items.push(item);}
+     lines.sort((a,b)=>b.y-a.y);
+     pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | '));
+   }
+   const raw=pages.join(' | ');
+   if(raw.trim())addCandidate(raw);else addCandidate('');
+   let missing=chooseBest();
+   if(missing.length){
+     if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
+     const renderAndRecognize=async(useThreshold)=>{
+       const ocrPages=[];
+       for(let p=1;p<=pdf.numPages;p++){
+         parseStatus.className='parse-status';
+         parseStatus.textContent=(useThreshold?'Tentativa 2: OCR com contraste reforçado — ':'Reconhecendo página ')+p+' de '+pdf.numPages+'…';
+         const page=await pdf.getPage(p);const viewport=page.getViewport({scale:3.6});
+         const sourceCanvas=document.createElement('canvas');
+         sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
+         const ctx=sourceCanvas.getContext('2d');
+         await page.render({canvasContext:ctx,viewport}).promise;
+         let targetCanvas=sourceCanvas;
+         if(useThreshold)targetCanvas=binaryCanvas(sourceCanvas);
+         try{
+           const pageText=await recognize(targetCanvas,(useThreshold?'OCR reforçado da página ':'OCR da página ')+p+'/'+pdf.numPages+'…');
+           ocrPages.push(pageText);
+         }finally{
+           if(targetCanvas!==sourceCanvas){targetCanvas.width=0;targetCanvas.height=0;}
+           sourceCanvas.width=0;sourceCanvas.height=0;
+         }
+       }
+       return ocrPages.join('\n');
+     };
+     const firstOcrText=await renderAndRecognize(false);
+     missing=addCandidate(firstOcrText);
+     if(missing.length){
+       const secondOcrText=await renderAndRecognize(true);
+       missing=addCandidate(secondOcrText);
+     }
+     chooseBest();
+   }
+ }catch(e){
+   parseStatus.className='parse-status error';
+   parseStatus.textContent='Não foi possível ler o PDF/imagem: '+(e&&e.message?e.message:'arquivo inválido');
  }
- }catch(e){parseStatus.className='parse-status error';parseStatus.textContent='Não foi possível ler o PDF: '+(e&&e.message?e.message:'arquivo inválido');}});
+});
 function parsePenaltyPdf(raw){
  const text=String(raw||'').replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
  const upper=text.toLocaleUpperCase('pt-BR');
@@ -212,7 +333,7 @@ function parsePenaltyPdf(raw){
    const main=candidates.find(m=>!/Origin[aá]ria/i.test(text.slice(Math.max(0,m.index-80),m.index+20)));
    if(main)ait=clean(main[1]).toUpperCase();
  }
- const origin=firstMatch([
+ let origin=firstMatch([
    /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
    /Auto\s+(?:de|da)\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
  ]);
@@ -319,6 +440,8 @@ function parsePenaltyPdf(raw){
    locationMatch=combined.match(locationSequence);
  }
  if(!locationMatch&&localContext)locationMatch=localContext.match(locationSequence);
+ // Recuperar também quando o OCR não reconhece o cabeçalho "Local / Rodovia".
+ if(!locationMatch)locationMatch=text.match(locationSequence);
  if(locationMatch){
    local=clean(locationMatch[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
    km=clean(locationMatch[2]).replace(/\s+/g,' ');
@@ -419,6 +542,21 @@ function parsePenaltyPdf(raw){
      }
    }
  }
+ // OCR de digitalização pode perder o rótulo, mas reconhecer a descrição abaixo dele.
+ if(!penalty){
+   const descriptions=[...text.matchAll(/\bMULTA\s+POR\b[\s\S]{0,300}/ig)];
+   for(const item of descriptions){
+     let candidate=item[0];
+     const stops=[
+       candidate.search(/\s+\d{2,4}\s*[-/.]\s*\d{1,2}\b/i),
+       candidate.search(/\s+(?:C[oó]d(?:igo)?\.?\s+Infra[cç][aã]o|Base\s+Legal|Desdob\.?|Data\s+da\s+Infra[cç][aã]o|Hora\s+Infra[cç][aã]o|Valor\s+Integral)\b/i)
+     ].filter(position=>position>0);
+     if(stops.length)candidate=candidate.slice(0,Math.min(...stops));
+     candidate=normalizePenalty(candidate);
+     if(candidate.length>=18){penalty=candidate;break;}
+   }
+ }
+
  // O PDF pode separar os rótulos e os valores em colunas.
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
@@ -446,8 +584,9 @@ function parsePenaltyPdf(raw){
  // Fallbacks orientados pelos sete campos marcados nos prints: aceitar variações de acentuação,
  // espaços e separadores que aparecem no texto extraído do PDF/OCR.
  if(!company){
-   const companyCandidates=[...text.matchAll(/\bNome\s*[:.]?\s*(.{5,150}?\b(?:LTDA\.?|S\/?A\.?|EIRELI)\b)/ig)];
-   const valid=companyCandidates.map(m=>clean(m[1])).find(v=>/\b(?:TRANSPORTES|TRANSPORTE|LOG[IÍ]STICA|COSTA)\b/i.test(v));
+   // Não fixar a razão social: usar a primeira entidade legal associada a "Nome".
+   const companyCandidates=[...text.matchAll(/\bNome\s*[:.]?\s*(.{5,150}?\b(?:LTDA\.?|S\/?A\.?|EIRELI|S\.?A\.?|SPE)\b)/ig)];
+   const valid=companyCandidates.map(m=>clean(m[1])).find(v=>v.length>=6&&!/^(?:DA INFRA[CÇ][AÃ]O|PESSOA JUR[IÍ]DICA|TIPIFICA[CÇ][AÃ]O)\b/i.test(v));
    if(valid)company=valid;
  }
  if(!multa){
