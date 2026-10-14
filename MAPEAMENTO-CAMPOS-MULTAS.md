@@ -36,7 +36,7 @@
 | **Veículo** | Bloco de dados do veículo; campo **Placa** (print 2) | Ler a placa no bloco do veículo. Não usar o município deste bloco como local da infração. A interface descreve o campo como placa/modelo; não preencher modelo com outro campo por aproximação. |
 | **Motorista** | Não extraído da multa pelo parser atual | Campo manual. |
 | **Fornecedor** | Rótulo **Órgão Autuador** e o nome verdadeiro do órgão indicado no documento | Preencher com o nome do órgão, nunca com o próprio rótulo “Órgão Autuador”. Pode mudar entre DER e outros órgãos. |
-| **Cod infração** | Não extraído pelo parser atual | Campo manual. Não confundir com o código da infração que aparece como coluna vizinha à penalidade, caso o operador precise de outro valor neste campo. |
+| **Cod infração** | Seção inferior **TIPIFICAÇÃO DA PENALIDADE APLICADA**, no rótulo abreviado **Cód. Infração**, ao lado da descrição em **Penalidade aplicada** (print 8) | Extrair o valor associado especificamente a **Cód. Infração** e preencher o campo automaticamente. Na multa de teste, esse valor é **500-2**. Não confundir com o campo superior **Código da Infração** na seção **TIPIFICAÇÃO DA INFRAÇÃO ORIGINÁRIA**, que na mesma multa mostra **570 3** e não deve preencher este campo. Tolerar erros de OCR no espaço/hífen e normalizar para o formato NN-N. |
 | **N° multa** | Número principal do **Auto de Infração** (print 5) | Deve acompanhar o AIT principal. Não usar número de postagem nem AIT originário. |
 | **Chegou apenas notificação** | Não extraído pelo parser atual | Campo manual. |
 | **Local da multa/sinistro** | Bloco/tabela encabeçado por **Local / Rodovia** (print 3). Linha dos valores: Rodovia, KM, metros, sentido, **Município da Infração**, UF, código e data/hora | Montar RODOVIA + “KM” + número do KM + município da infração. Exemplo de formato: **SP 150 KM 043 CUBATÃO**. O exemplo serve apenas para demonstrar o formato: nunca fixar rodovia, KM ou município. Preservar zeros à esquerda (043). Procurar a cidade nesta linha/bloco e não no bloco do veículo (que pode indicar SANTOS ou outra cidade). |
@@ -81,6 +81,7 @@ Os prints marcam a posição dos campos, mas os valores impressos mudam a cada d
 - [ ] Fornecedor vem do nome real após/associado a “Órgão Autuador”.
 - [ ] Local inclui rodovia, KM e Município da Infração, nunca só rodovia/KM se a cidade está no documento.
 - [ ] A cidade do local não é copiada do bloco do veículo.
+- [ ] “Cod infração” é lido pelo rótulo abreviado “Cód. Infração” na seção inferior “TIPIFICAÇÃO DA PENALIDADE APLICADA” (código 500-2 no documento de teste), sem usar “Código da Infração” da seção originária (570 3).
 - [ ] Histórico mantém a descrição integral de “Penalidade aplicada” sem incorporar o código/colunas vizinhas.
 - [ ] AIT principal e AIT originária permanecem separados.
 - [ ] Data da infração, data da postagem e vencimento não são confundidos.
