@@ -378,7 +378,6 @@ function parsePenaltyPdf(raw){
  set('dataInfracao',infDate);
  set('dataVencimento',due);
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
- if(/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company))set('centroCusto','FROTA CRC');
  // O campo Veículo recebe somente a placa destacada no print 2.
  if(plate)set('veiculo',plate);
  // O fornecedor e o centro de custo não fazem parte dos sete blocos marcados nos prints.
