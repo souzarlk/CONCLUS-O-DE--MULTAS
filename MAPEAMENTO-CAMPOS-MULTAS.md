@@ -104,15 +104,15 @@ Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do mode
 | **Motorista** | “Identificação do Condutor” / “Nome do Condutor” | O campo pode estar em branco. Não inferir o motorista; manter manual. |
 | **Fornecedor** | “Órgão Autuador” | Capturar o nome real do órgão a partir da linha de valores, sem confundir com “Código Órgão”. |
 | **Cod infração** | “Código da Infração” da seção principal “TIPIFICAÇÃO DA INFRAÇÃO” | Capturar o código principal (no documento de teste: **5002**). Não usar a tipificação do AIT originário, que aparece em “Outras Observações Gerais” como **5550/0**. O valor é variável. |
-| **N° multa** / **N° AIT** | “Auto de Infração” no início da notificação | Usar o AIT desta notificação. Não usar o AIT originário. |
-| **N° AIT originária** | Texto “Multa NIC originada do Auto de Infração” em “Outras Observações Gerais” | Capturar o número ligado especificamente a esse rótulo. Ele pode ter prefixo diferente do AIT principal. |
+| **N° multa** | “Auto de Infração” no início da notificação | O campo N° multa permanece no formulário; usar o número principal da própria notificação. |
+| **N° AIT** e **N° AIT originária** | Não usados como campos separados neste tipo | Ocultar os dois campos e não exigir sua leitura na validação deste modelo, mesmo que o documento contenha identificadores em outras seções. |
 | **Local da multa/sinistro** | “Local da infração” e o município na tabela “Código / Município” da área “LOCAL, DATA E HORA DO COMETIMENTO DA INFRAÇÃO” | Montar o endereço da infração + município. Não exigir KM/rodovia, pois este modelo pode conter rua, número e bairro. |
 | **Data da infração** | Data e hora na mesma seção de “Local da infração” | Usar a data/hora desta seção, sem capturar a data da infração originária que aparece nas observações. |
 | **Histórico multa** | “Descrição da Infração” na seção principal “TIPIFICAÇÃO DA INFRAÇÃO” | Capturar a descrição principal da notificação. Não substituir pela descrição do AIT originário em “Outras Observações Gerais”. |
 | **Valor líquido** | “Valor (R$)” em “Informações Complementares” | Para este layout sem tabela de boleto/desconto, usar o único valor monetário apresentado. |
 | **Des. valor** | Não há valor com desconto neste modelo | Considerar **R$ 0,00**, sem inferir desconto. |
 | **Prejuízo valor** | Calculado | Como não há desconto, usar o mesmo valor de “Valor líquido”. |
-| **Data de vencimento** | “Data Limite para interposição de DEFESA PRÉVIA e/ou identificação do condutor infrator” | Para este tipo, associar esse prazo ao campo de data-limite. Não usar a data da expedição da notificação nem a data da infração originária. |
+| **Data de vencimento** | Não aplicável a este tipo | Ocultar o campo e não reutilizar a data limite para defesa prévia como vencimento do boleto. |
 | **Centro de custo** | Regra de negócio separada da multa | Aplicar somente mapeamentos confirmados. O mapeamento existente **CRC DA COSTA TRANSPORTES LTDA → FROTA CRC** não deve ser estendido automaticamente a outra razão social/sufixo sem confirmação. |
 
 ### Validação específica deste modelo
