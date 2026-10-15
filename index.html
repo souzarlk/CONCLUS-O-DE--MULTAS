@@ -107,9 +107,9 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label class="wide">Local da multa/sinistro <span class="field-hint" id="localMultaHint">Local/Rodovia + KM + Município da infração</span><input id="localMulta" placeholder="Será montado pelo PDF"></label>
     <label class="wide">Histórico multa <span class="field-hint">Campo “Penalidade Aplicada”</span><textarea id="historicoMulta" rows="2" placeholder="Será preenchido pelo PDF"></textarea></label>
     <label class="wide">Peças danificadas <span class="manual-tag">Manual</span><input id="pecasDanificadas" placeholder="Preencher manualmente"></label>
-    <label>Prejuízo valor <span class="field-hint">Valor líquido − Des. valor</span><input id="prejuizoValor" placeholder="R$ 0,00"></label>
-    <label>Des. valor <span class="field-hint" id="descontoValorHint">Valor integral − valor com desconto</span><input id="descontoValor" placeholder="R$ 0,00"></label>
-    <label>Valor líquido <span class="field-hint" id="valorLiquidoHint">Valor Integral</span><input id="valorLiquido" placeholder="R$ 0,00"></label>
+    <label id="fieldPrejuizoValor">Prejuízo valor <span class="field-hint">Valor líquido − Des. valor</span><input id="prejuizoValor" placeholder="R$ 0,00"></label>
+    <label id="fieldDescontoValor">Des. valor <span class="field-hint" id="descontoValorHint">Valor integral − valor com desconto</span><input id="descontoValor" placeholder="R$ 0,00"></label>
+    <label id="fieldValorLiquido"><span id="valorLiquidoLabel">Valor líquido</span> <span class="field-hint" id="valorLiquidoHint">Valor Integral</span><input id="valorLiquido" placeholder="R$ 0,00"></label>
     <label>Tipo ocorrência <span class="field-hint">Preenchimento automático fixo</span><input id="tipoOcorrencia" value="MULTA" readonly></label>
     <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
     <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
@@ -141,6 +141,12 @@ function openFineType(type){
   document.getElementById('fieldAit').style.display=isIdentification?'none':'';
   document.getElementById('fieldAitOriginaria').style.display=isIdentification?'none':'';
   document.getElementById('fieldDataVencimento').style.display=isIdentification?'none':'';
+  document.getElementById('fieldPrejuizoValor').style.display=isIdentification?'none':'';
+  document.getElementById('fieldDescontoValor').style.display=isIdentification?'none':'';
+  document.getElementById('valorLiquidoLabel').textContent=isIdentification?'Valor':'Valor líquido';
+  document.getElementById('valorLiquidoHint').textContent=isIdentification
+    ?'Valor total indicado em “Valor (R$)”'
+    :'Valor Integral';
   document.getElementById('selectedFineTitle').textContent=type==='identificacao'?'APENAS IDENTIFICAÇÃO':'NÃO IDENTIFICAÇÃO COM BOLETO';
   document.getElementById('selectedFineDescription').textContent=type==='identificacao'
     ?'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.'
@@ -566,9 +572,11 @@ function parseIdentificationFine(raw){
  if(amount){
    const formatted=moneyFmt(amount);
    set('valorLiquido',formatted);
-   // A notice without a boleto/discount table has no discount amount; use zero reduction.
-   set('descontoValor','R$ 0,00');
-   set('prejuizoValor',formatted);
+   // O modelo “Apenas Identificação” só possui o valor total; não calcula desconto/prejuízo.
+   if(currentFineType!=='identificacao'){
+     set('descontoValor','R$ 0,00');
+     set('prejuizoValor',formatted);
+   }
  }
  // Keep the existing confirmed center-cost rule only for its confirmed legal name.
  set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company)?'FROTA CRC':'');
