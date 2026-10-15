@@ -186,9 +186,9 @@ pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
  const targetIds=currentFineType==='identificacao'
-   ?['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','historicoMulta']
+   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','valorLiquido','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
- const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
+ const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
  const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
@@ -372,13 +372,36 @@ function parseIdentificationFine(raw){
  const firstMatch=(re,source=flat)=>{const m=String(source||'').match(re);return m?clean(m[1]||''):'';};
  const idxRow=re=>rows.findIndex(row=>re.test(row));
  const datePattern=/(\d{2}[/.]\d{2}[/.]\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?/;
- // Main AIT printed near the start of the notice.
+ // O AIT principal aparece no início do aviso, mas N° multa deste modelo deve vir
+ // preferencialmente do campo “Nº do Auto” da declaração inferior.
+ const normalizeAutoNumber=value=>String(value||'').toLocaleUpperCase('pt-BR')
+   .replace(/^([A-Z]{2,4})O(?=\d)/,(_,prefix)=>prefix+'0')
+   .replace(/\s+/g,'').trim();
  let ait=firstMatch(/\bAuto\s+de\s+Infra[cç][aã]o\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
  if(!ait){
    const head=flat.match(/\bN[ºo°]?\s*do\s+Auto\s+de\s+Infra[cç][aã]o\s+([A-Z0-9][A-Z0-9.\/-]{4,})/i);
    if(head)ait=clean(head[1]);
  }
- ait=ait.toLocaleUpperCase('pt-BR');
+ ait=normalizeAutoNumber(ait);
+ let multaNumber='';
+ const autoLabelMatches=[...flat.matchAll(/\bN\s*[º°o]\s*do\s+Auto\b/ig)];
+ const lastAutoLabel=autoLabelMatches[autoLabelMatches.length-1]||null;
+ const autoHeaderRow=(()=>{for(let i=rows.length-1;i>=0;i--)if(/\bN\s*[º°o]\s*do\s+Auto\b/i.test(rows[i])&&!/Auto\s+de\s+Infra[cç][aã]o/i.test(rows[i]))return i;return -1;})();
+ const autoTokenRe=/\b([A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?)\b/ig;
+ if(autoHeaderRow>=0){
+   const sameRow=rows[autoHeaderRow].match(/\bN\s*[º°o]\s*do\s+Auto\b[\s:.-]*([A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?)/i);
+   if(sameRow)multaNumber=sameRow[1];
+   for(let i=autoHeaderRow+1;!multaNumber&&i<Math.min(rows.length,autoHeaderRow+5);i++){
+     const tokens=[...rows[i].matchAll(autoTokenRe)];
+     if(tokens.length)multaNumber=tokens[0][1];
+   }
+ }
+ if(!multaNumber&&lastAutoLabel){
+   const lowerDeclaration=flat.slice(lastAutoLabel.index+lastAutoLabel[0].length,lastAutoLabel.index+lastAutoLabel[0].length+1100);
+   const tokens=[...lowerDeclaration.matchAll(autoTokenRe)];
+   if(tokens.length)multaNumber=tokens[0][1];
+ }
+ multaNumber=normalizeAutoNumber(multaNumber||ait);
  // The original AIT is noted separately in the "Multa NIC originada..." observations.
  let origin=firstMatch(/Multa\s+NIC\s+originada\s+do\s+Auto\s+de\s+Infra[cç][aã]o\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
  if(!origin){
@@ -389,27 +412,41 @@ function parseIdentificationFine(raw){
    }
  }
  origin=origin.toLocaleUpperCase('pt-BR');
- // Read the owner from the value row underneath "Nome do Proprietário", not from adjacent column headings.
+ // Empresa: ler os valores sob o cabeçalho "Nome do Proprietário/Arrendatário".
+ // A mesma linha pode conter Órgão Autuador, Código do Órgão e N° do Auto antes do nome.
  let company='';
  const ownerHeader=idxRow(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?/i);
- for(let i=ownerHeader+1;ownerHeader>=0&&i<Math.min(rows.length,ownerHeader+5);i++){
-   let row=rows[i];
-   if(ait){
-     const pos=row.toLocaleUpperCase('pt-BR').indexOf(ait);
-     if(pos>=0){
-       let tail=clean(row.slice(pos+ait.length));
-       tail=tail.split(/\b(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O)\b/i)[0].trim();
-       if(tail.length>=5&&!/^(?:UF|CPF|CNPJ|Código)$/i.test(tail)){company=tail;break;}
+ const ownerRows=ownerHeader>=0?rows.slice(ownerHeader,Math.min(rows.length,ownerHeader+6)):rows;
+ const companyFromOwnerRow=rowValue=>{
+   let row=String(rowValue||'');
+   const label=/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?/i.exec(row);
+   if(label)row=row.slice(label.index+label[0].length);
+   const legal=/\b(ME|LTDA\.?|EPP|EIRELI|S\/?A\.?)\b/i.exec(row);
+   if(!legal)return '';
+   let before=row.slice(0,legal.index);
+   // Se o número do AIT está na mesma linha de valores, o nome começa logo depois dele.
+   const ids=[...before.matchAll(/\b[A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b/ig)];
+   if(ids.length){
+     const lastId=ids[ids.length-1];
+     before=before.slice(lastId.index+lastId[0].length);
+   }else{
+     // Alternativa para OCR que perde o AIT, mas mantém o código numérico do órgão autuador.
+     const numericCodes=[...before.matchAll(/\b\d{4,}\b/g)];
+     if(numericCodes.length){
+       const lastCode=numericCodes[numericCodes.length-1];
+       before=before.slice(lastCode.index+lastCode[0].length);
      }
    }
-   const legal=rows[i].match(/\b(?:ME|LTDA\.?|EPP|EIRELI|S\/?A\.?)\b/i);
-   if(legal){
-     const words=rows[i].slice(0,legal.index).match(/[A-ZÀ-Ü0-9&.'’()/-]+/ig)||[];
-     if(words.length>=2){company=clean(words.slice(-6).join(' ')+' '+legal[0]);break;}
-   }
+   before=before.replace(/.*\b(?:Órg[aã]o\s+Autuador|CET-SANTOS|Nome\s+do\s+Propriet[aá]rio)\b/i,' ');
+   const name=clean(before+' '+legal[1]);
+   return name.split(/\b(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O)\b/i)[0].trim();
+ };
+ for(const row of ownerRows){
+   const candidate=companyFromOwnerRow(row);
+   if(candidate&&candidate.split(/\s+/).length>=3){company=candidate;break;}
  }
  if(!company){
-   const m=flat.match(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?\s+(.{5,100}?)(?=\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O\s+DO\s+CONDUTOR)\b)/i);
+   const m=flat.match(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?\s+(.{5,120}?)(?=\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O\s+DO\s+CONDUTOR)\b)/i);
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
@@ -439,25 +476,46 @@ function parseIdentificationFine(raw){
    const p=flat.match(/\b([A-Z]{3}\s*\d{4}|[A-Z]{3}\s*\d\s*[A-Z]\s*\d{2})\b/i);
    if(p)plate=p[1].replace(/\s+/g,'').toUpperCase();
  }
- // Code is the principal "Código da Infração" from the upper typification table,
- // not the different "Tipificação" mentioned for the original AIT in observations.
+ // Código da infração: usar a tabela principal “TIPIFICAÇÃO DA INFRAÇÃO”.
+ // O cabeçalho pode estar numa linha e os valores noutra; não usar números do artigo (CTB) nem do AIT originário.
  let code='';
- const codeHeader=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
+ const typificationHeader=idxRow(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
+ const observationsHeader=rows.findIndex((row,index)=>index>(typificationHeader>=0?typificationHeader:-1)&&/OUTRAS\s+OBSERV/i.test(row));
+ let codeHeader=-1;
+ for(let i=Math.max(0,typificationHeader);i<rows.length;i++){
+   if(observationsHeader>=0&&i>=observationsHeader)break;
+   if(/C[oó]digo\s+da\s+Infra[cç][aã]o/i.test(rows[i])){codeHeader=i;break;}
+ }
+ if(codeHeader<0){
+   // Some OCR layouts split the heading itself across rows.
+   codeHeader=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
+ }
  if(codeHeader>=0){
-   for(let i=codeHeader;i<Math.min(rows.length,codeHeader+4);i++){
+   const label=/C[oó]digo\s+da\s+Infra[cç][aã]o/i.exec(rows[codeHeader]);
+   if(label){
+     const tail=rows[codeHeader].slice(label.index+label[0].length);
+     const immediate=tail.match(/^\s*[:.|\-]?\s*(\d{3,5})\b/);
+     if(immediate)code=immediate[1];
+   }
+   // Prefer the first numeric value row below the column headings. Such a row begins with the code itself.
+   for(let i=codeHeader+1;!code&&i<Math.min(rows.length,codeHeader+5);i++){
+     if(observationsHeader>=0&&i>=observationsHeader)break;
      const row=rows[i];
-     const label=/C[oó]digo\s+da\s+Infra[cç][aã]o/i.exec(row);
-     const segment=label?row.slice(label.index+label[0].length):row;
-     let m=segment.match(/^\s*[:.]?\s*(\d{3,5})\b/);
-     if(!m)m=segment.match(/\b(\d{3,5})\b/);
-     if(m){code=m[1];break;}
+     if(/^(?:Descrição|Descri[cç][aã]o|Código RENAINF|Data da Expedição|Valor\s*\(R\$?\))/i.test(row))continue;
+     const value=row.match(/^\s*[\[|!;,.]?\s*(\d{3,5})\b/);
+     if(value)code=value[1];
    }
  }
  if(!code){
-   const idx=upper.indexOf('CÓDIGO DA INFRAÇÃO');
-   if(idx>=0){
-     const m=flat.slice(idx,idx+180).match(/\b(\d{3,5})\b/);
-     if(m)code=m[1];
+   // Linear fallback remains inside the main typification section and excludes the notes/origin section.
+   const start=upper.search(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
+   const end=upper.search(/OUTRAS\s+OBSERV/i);
+   const section=start>=0?flat.slice(start,end>start?end:start+1400):flat;
+   const label=/C[oó]digo\s+da\s+Infra[cç][aã]o/i.exec(section);
+   if(label){
+     const tail=section.slice(label.index+label[0].length);
+     const direct=tail.match(/^\s*[:.|\-]?\s*(\d{3,5})\b/);
+     if(direct)code=direct[1];
    }
  }
  // Endereço da infração: a digitalização pode truncar o rótulo ou dividir o endereço em várias linhas.
@@ -572,8 +630,9 @@ function parseIdentificationFine(raw){
      if(/(?:condutor|infrator|identifica[cç][aã]o|jur[ií]dica)/i.test(candidate)
        && !/Multa\s+NIC\s+originada/i.test(candidate)
        && !/^(?:Número\s+de|Data\s+da|Código\s+RENAINF|Equipamento|Medição|Observações)/i.test(candidate)){
+       candidate=candidate.replace(/^(?:dita|ulta)\s*,\s*(?=por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa, ');
        candidate=candidate.replace(/^ulta\s*,/i,'Multa,');
-       candidate=candidate.replace(/^[^A-ZÀ-Ü]*(?:[|!])?\s*/,'');
+       candidate=candidate.replace(/^[^A-Za-zÀ-ÿ]*(?:[|!])?\s*/,'');
        candidate=candidate.replace(/\s+(?:É\s+)?OUTRAS\s+OBSERV[\s\S]*$/i,'').replace(/\s+(?:É|E)\s*$/i,'').trim();
        candidates.push(candidate);
      }
@@ -584,26 +643,33 @@ function parseIdentificationFine(raw){
    }
  }
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
- // Read the single fine amount under "Informações Complementares".
+ // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
  const infoHeader=idxRow(/INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES/i);
+ const otherObservations=rows.findIndex((row,index)=>index>(infoHeader>=0?infoHeader:-1)&&/OUTRAS\s+OBSERV/i.test(row));
+ const infoEnd=otherObservations>=0?otherObservations:Math.min(rows.length,(infoHeader>=0?infoHeader:0)+14);
  let amountHeader=-1;
- for(let i=Math.max(0,infoHeader);infoHeader>=0&&i<Math.min(rows.length,infoHeader+7);i++){
+ for(let i=Math.max(0,infoHeader);infoHeader>=0&&i<Math.min(infoEnd,infoHeader+10);i++){
    if(/\bV?alor\s*(?:\(\s*R\$\s*\))?/i.test(rows[i])){amountHeader=i;break;}
  }
- const moneyRe=/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/;
- for(let i=Math.max(0,amountHeader);amountHeader>=0&&i<Math.min(rows.length,amountHeader+4);i++){
-   const row=rows[i];
-   let sample=row;
-   if(i===amountHeader){
-     const m=/\bV?alor\s*(?:\(\s*R\$\s*\))?/i.exec(row);
-     if(m)sample=row.slice(m.index+m[0].length);
+ const moneyRe=/(?:R\$\s*)(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i;
+ if(amountHeader>=0){
+   for(let i=amountHeader;i<Math.min(infoEnd,amountHeader+5);i++){
+     const row=rows[i];
+     const currencyMatch=row.match(moneyRe);
+     if(currencyMatch){amount=currencyMatch[1];break;}
    }
-   const m=sample.match(moneyRe);
-   if(m){amount=m[1];break;}
+ }
+ if(!amount&&infoHeader>=0){
+   const infoSection=rows.slice(infoHeader,infoEnd).join(' ');
+   const currencyMatch=infoSection.match(moneyRe);
+   if(currencyMatch)amount=currencyMatch[1];
  }
  if(!amount){
-   const m=flat.match(/\bValor\s*\(\s*R\$\s*\)[\s\S]{0,220}?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
+   const start=upper.search(/INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES/i);
+   const end=upper.search(/OUTRAS\s+OBSERV/i);
+   const infoSection=start>=0?flat.slice(start,end>start?end:start+1200):'';
+   const m=infoSection.match(/(?:V?alor\s*\(\s*R\$\s*\))[\s\S]{0,240}?(?:R\$\s*)(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
    if(m)amount=m[1];
  }
  const moneyNum=v=>Number(String(v||'').replace(/\./g,'').replace(',','.'));
@@ -612,7 +678,7 @@ function parseIdentificationFine(raw){
  set('veiculo',plate);
  set('fornecedor',org);
  set('codInfracao',code);
- set('numeroMulta',ait);
+ set('numeroMulta',multaNumber||ait);
  if(currentFineType!=='identificacao'){
    set('ait',ait);
    set('aitOriginaria',origin);
