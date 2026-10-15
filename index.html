@@ -574,7 +574,7 @@ function parseIdentificationFine(raw){
        && !/^(?:Número\s+de|Data\s+da|Código\s+RENAINF|Equipamento|Medição|Observações)/i.test(candidate)){
        candidate=candidate.replace(/^ulta\s*,/i,'Multa,');
        candidate=candidate.replace(/^[^A-ZÀ-Ü]*(?:[|!])?\s*/,'');
-       candidate=candidate.replace(/\s+(?:É\s+)?OUTRAS\s+OBSERV[\s\S]*$/i,'').trim();
+       candidate=candidate.replace(/\s+(?:É\s+)?OUTRAS\s+OBSERV[\s\S]*$/i,'').replace(/\s+(?:É|E)\s*$/i,'').trim();
        candidates.push(candidate);
      }
    }
