@@ -188,6 +188,7 @@ pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
+ let focusedPointsValue='';
  const targetIds=currentFineType==='identificacao'
    ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','valorLiquido','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
@@ -227,6 +228,8 @@ pdfInput.addEventListener('change',async()=>{
      const backup=ranked.find(entry=>fieldUsable(id,entry.candidate.values[id]));
      if(backup)merged[id]=backup.candidate.values[id];
    }
+   // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
+   if(currentFineType==='identificacao'&&focusedPointsValue)merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
    merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(merged.empresa||'')?'FROTA CRC':'';
    restoreSnapshot(merged);
@@ -278,6 +281,49 @@ pdfInput.addEventListener('change',async()=>{
      await worker.terminate();
    }
  };
+ const recognizeFocusedPoints=async(sourceCanvas)=>{
+   if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
+   const ratio=sourceCanvas.width/sourceCanvas.height;
+   // Portrait PDF and square-ish image crops use different page framing.
+   const region=ratio<0.85
+     ?{x:0.365,y:0.607,w:0.145,h:0.037}
+     :{x:0.405,y:0.445,w:0.16,h:0.075};
+   const sx=Math.max(0,Math.floor(sourceCanvas.width*region.x));
+   const sy=Math.max(0,Math.floor(sourceCanvas.height*region.y));
+   const sw=Math.max(1,Math.min(sourceCanvas.width-sx,Math.floor(sourceCanvas.width*region.w)));
+   const sh=Math.max(1,Math.min(sourceCanvas.height-sy,Math.floor(sourceCanvas.height*region.h)));
+   const crop=document.createElement('canvas');
+   crop.width=sw*5;crop.height=sh*5;
+   const ctx=crop.getContext('2d',{willReadFrequently:true});
+   ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+   ctx.drawImage(sourceCanvas,sx,sy,sw,sh,0,0,crop.width,crop.height);
+   // Convert to grayscale and increase contrast while preserving thin character strokes.
+   const pixels=ctx.getImageData(0,0,crop.width,crop.height);
+   for(let i=0;i<pixels.data.length;i+=4){
+     const gray=0.299*pixels.data[i]+0.587*pixels.data[i+1]+0.114*pixels.data[i+2];
+     const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.7+128)));
+     pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
+   }
+   ctx.putImageData(pixels,0,0);
+   try{
+     parseStatus.className='parse-status';
+     parseStatus.textContent='Ampliando a célula “Pontuação” para uma leitura específica…';
+     const parseNumber=source=>{
+       const values=String(source||'').match(/\b(\d{1,2})\b/g)||[];
+       const plausible=values.map(Number).filter(n=>Number.isInteger(n)&&n>=0&&n<=30);
+       return plausible.length?String(plausible[plausible.length-1]):'';
+     };
+     let text=await recognize(crop,'Lendo apenas a pontuação…',6);
+     let points=parseNumber(text);
+     if(!points){
+       text=await recognize(crop,'Repetindo a leitura ampliada da pontuação…',11);
+       points=parseNumber(text);
+     }
+     return points;
+   }finally{
+     crop.width=0;crop.height=0;
+   }
+ };
  clearAutoFields();fileName.textContent=file.name;parseStatus.className='parse-status';
  parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';
  try{
@@ -299,6 +345,10 @@ pdfInput.addEventListener('change',async()=>{
          enhanced=binaryCanvas(sourceCanvas);
          const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
          missing=addCandidate(secondText);
+         if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
+           const points=await recognizeFocusedPoints(sourceCanvas);
+           if(points){focusedPointsValue=points;missing=chooseBest();}
+         }
        }finally{
          if(bitmap)bitmap.close?.();
          if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
@@ -356,6 +406,22 @@ pdfInput.addEventListener('change',async()=>{
        parseStatus.textContent='Tentativa 3: reorganizando a leitura dos blocos de texto…';
        const thirdOcrText=await renderAndRecognize(false,11);
        missing=addCandidate(thirdOcrText);
+     }
+     if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
+       parseStatus.className='parse-status';
+       parseStatus.textContent='Os outros campos foram lidos. Fazendo uma leitura ampliada do campo “Pontos multa”…';
+       for(let p=1;p<=pdf.numPages&&!focusedPointsValue;p++){
+         const page=await pdf.getPage(p);
+         const viewport=page.getViewport({scale:3.6});
+         const sourceCanvas=document.createElement('canvas');
+         sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
+         try{
+           await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
+           const points=await recognizeFocusedPoints(sourceCanvas);
+           if(points)focusedPointsValue=points;
+         }finally{sourceCanvas.width=0;sourceCanvas.height=0;}
+       }
+       if(focusedPointsValue)missing=chooseBest();
      }
      chooseBest();
    }
