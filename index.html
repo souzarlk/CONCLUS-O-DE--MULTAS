@@ -560,7 +560,8 @@ function parseIdentificationFine(raw){
    const observationsRow=mainCodeRow>=0
      ?rows.findIndex((row,index)=>index>mainCodeRow&&/OUTRAS\s+OBSERV/i.test(row))
      :idxRow(/OUTRAS\s+OBSERV/i);
-   const end=observationsRow>=0?observationsRow:Math.min(rows.length,(mainCodeRow>=0?mainCodeRow:0)+24);
+   // A linha da observação pode conter o final da descrição principal na mesma linha OCR.
+   const end=observationsRow>=0?observationsRow+1:Math.min(rows.length,(mainCodeRow>=0?mainCodeRow:0)+24);
    const start=mainCodeRow>=0?mainCodeRow:Math.max(0,end-12);
    const candidates=[];
    for(let i=start;i<end;i++){
