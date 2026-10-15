@@ -477,7 +477,9 @@ function parseIdentificationFine(raw){
      const row=clean(rows[i]);
      if(!row)continue;
      if(/\b\d{2}[/.]\d{2}[/.]\d{4}\b/.test(row))break;
-     if(/^(?:Data|Hora)\b/i.test(row)||/Código\s*\/?\s*Munic[ií]pio/i.test(row))break;
+     if(/^(?:Data|Hora)\b/i.test(row)&&!/DATA\s+E\s+HORA\s+DO\s+COMETIMENTO/i.test(row))break;
+     if(/Código\s*\/?\s*Munic[ií]pio/i.test(row))break;
+     if(/DATA\s+E\s+HORA\s+DO\s+COMETIMENTO/i.test(row))continue;
      if(/^(?:IDENTIFICA[CÇ][AÃ]O|CPF\s*\/?\s*CNPJ|CPF\/CNPJ|UF(?:\s|$)|Nome\s+do\s+(?:Transportador|Embarcador)|Matr[ií]cula\s+do\s+Agente|Assinatura|N[uú]mero\s+de\s+Registro|Infrator)$/i.test(row))continue;
      if(/^(?:Local\s+da|Data\s+Hora|C[oó]digo\s+da\s+Infra[cç][aã]o|Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|TIPIFICA[CÇ][AÃ]O)\b/i.test(row))continue;
      if(/^(?:Órg[aã]o\s+Autuador|CET-SANTOS|Placa|Marca\/Modelo)\b/i.test(row))continue;
@@ -556,7 +558,7 @@ function parseIdentificationFine(raw){
  if(!history){
    const mainCodeRow=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
    const observationsRow=mainCodeRow>=0
-     ?rows.findIndex((row,index)=>index>mainCodeRow&&/OUTRAS\s+OBSERV(?:A[CÇ][OÕ]ES|[A-Z)]{3,})/i.test(row))
+     ?rows.findIndex((row,index)=>index>mainCodeRow&&/OUTRAS\s+OBSERV/i.test(row))
      :idxRow(/OUTRAS\s+OBSERV/i);
    const end=observationsRow>=0?observationsRow:Math.min(rows.length,(mainCodeRow>=0?mainCodeRow:0)+24);
    const start=mainCodeRow>=0?mainCodeRow:Math.max(0,end-12);
