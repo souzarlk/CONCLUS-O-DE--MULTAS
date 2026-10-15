@@ -545,45 +545,64 @@ function parseIdentificationFine(raw){
    const p=flat.match(/\b([A-Z]{3}\s*\d{4}|[A-Z]{3}\s*\d\s*[A-Z]\s*\d{2})\b/i);
    if(p)plate=p[1].replace(/\s+/g,'').toUpperCase();
  }
- // Código da infração: usar a tabela principal “TIPIFICAÇÃO DA INFRAÇÃO”.
- // O cabeçalho pode estar numa linha e os valores noutra; não usar números do artigo (CTB) nem do AIT originário.
+ // Cod. infração: priorizar a segunda ocorrência do rótulo na declaração inferior.
+ // O documento repete "Código da Infração" na tabela da notificação e na declaração destacável.
+ // O OCR da tabela superior pode juntar um caractere vizinho ao código (ex.: "65002");
+ // a declaração inferior mostra a mesma informação numa linha mais limpa (ex.: "5002").
  let code='';
- const typificationHeader=idxRow(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
- const observationsHeader=rows.findIndex((row,index)=>index>(typificationHeader>=0?typificationHeader:-1)&&/OUTRAS\s+OBSERV/i.test(row));
- let codeHeader=-1;
- for(let i=Math.max(0,typificationHeader);i<rows.length;i++){
-   if(observationsHeader>=0&&i>=observationsHeader)break;
-   if(/C[oó]digo\s+da\s+Infra[cç][aã]o/i.test(rows[i])){codeHeader=i;break;}
- }
- if(codeHeader<0){
-   // Some OCR layouts split the heading itself across rows.
-   codeHeader=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
- }
- if(codeHeader>=0){
-   const label=/C[oó]digo\s+da\s+Infra[cç][aã]o/i.exec(rows[codeHeader]);
-   if(label){
-     const tail=rows[codeHeader].slice(label.index+label[0].length);
-     const immediate=tail.match(/^\s*[:.|\-]?\s*(\d{3,5})\b/);
-     if(immediate)code=immediate[1];
+ const codeLabelRegex=/C[oó]digo\s+da\s+Infra[cç][aã]o/i;
+ const codeLabelRows=rows.map((row,index)=>({row,index,match:codeLabelRegex.exec(row)})).filter(item=>item.match);
+ const bottomDeclarationIndex=(()=> {
+   for(let i=rows.length-1;i>=0;i--)if(/DECLARA[CÇ][AÃ]O\s+DE\s+IDENTIFICA[CÇ][AÃ]O/i.test(rows[i]))return i;
+   return -1;
+ })();
+ const readFourDigitCodeAfterLabel=(labelRowIndex,limit=7)=>{
+   if(labelRowIndex<0||labelRowIndex>=rows.length)return '';
+   const labelMatch=codeLabelRegex.exec(rows[labelRowIndex]);
+   if(labelMatch){
+     const tail=rows[labelRowIndex].slice(labelMatch.index+labelMatch[0].length);
+     const inSameRow=tail.match(/(?:^|\s)(\d{4})(?=\s|$)/);
+     if(inSameRow)return inSameRow[1];
    }
-   // Prefer the first numeric value row below the column headings. Such a row begins with the code itself.
-   for(let i=codeHeader+1;!code&&i<Math.min(rows.length,codeHeader+5);i++){
-     if(observationsHeader>=0&&i>=observationsHeader)break;
+   for(let i=labelRowIndex+1;i<Math.min(rows.length,labelRowIndex+limit+1);i++){
      const row=rows[i];
-     if(/^(?:Descrição|Descri[cç][aã]o|Código RENAINF|Data da Expedição|Valor\s*\(R\$?\))/i.test(row))continue;
-     const value=row.match(/^\s*[\[|!;,.]?\s*(\d{3,5})\b/);
-     if(value)code=value[1];
+     if(/OUTRAS\s+OBSERV|SUSPENS[ÃA]O\s+DO\s+DIREITO/i.test(row))break;
+     // Only accept a distinct 4-digit code token; do not take the first four digits
+     // out of a glued 5-digit OCR artifact such as 65002.
+     const tokens=[...row.matchAll(/(?:^|\s)(\d{4})(?=\s|$)/g)];
+     if(tokens.length)return tokens[0][1];
    }
+   return '';
+ };
+ // Prefer "Código da Infração" in the lower declaration, because the same code is
+ // repeated there and its value is aligned below the matching header.
+ let lowerCodeLabel=-1;
+ for(const item of codeLabelRows){
+   if(bottomDeclarationIndex>=0&&item.index>=bottomDeclarationIndex)lowerCodeLabel=item.index;
  }
+ if(lowerCodeLabel>=0)code=readFourDigitCodeAfterLabel(lowerCodeLabel,8);
+ // Fallback to the principal upper typification, still requiring a clean four-digit token.
  if(!code){
-   // Linear fallback remains inside the main typification section and excludes the notes/origin section.
-   const start=upper.search(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
-   const end=upper.search(/OUTRAS\s+OBSERV/i);
-   const section=start>=0?flat.slice(start,end>start?end:start+1400):flat;
-   const label=/C[oó]digo\s+da\s+Infra[cç][aã]o/i.exec(section);
+   const typificationHeader=idxRow(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
+   const observationsHeader=rows.findIndex((row,index)=>index>(typificationHeader>=0?typificationHeader:-1)&&/OUTRAS\s+OBSERV/i.test(row));
+   let mainCodeLabel=-1;
+   for(const item of codeLabelRows){
+     if(typificationHeader>=0&&item.index>=typificationHeader&&(observationsHeader<0||item.index<observationsHeader)){
+       mainCodeLabel=item.index;break;
+     }
+   }
+   code=readFourDigitCodeAfterLabel(mainCodeLabel,6);
+ }
+ // Last fallback: restrict the linear text to the main typification and accept only
+ // a standalone four-digit value immediately attached to the label.
+ if(!code){
+   const startType=upper.search(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
+   const endType=upper.search(/OUTRAS\s+OBSERV/i);
+   const section=startType>=0?flat.slice(startType,endType>startType?endType:startType+1400):'';
+   const label=codeLabelRegex.exec(section);
    if(label){
      const tail=section.slice(label.index+label[0].length);
-     const direct=tail.match(/^\s*[:.|\-]?\s*(\d{3,5})\b/);
+     const direct=tail.match(/(?:^|\s)(\d{4})(?=\s|$)/);
      if(direct)code=direct[1];
    }
  }
