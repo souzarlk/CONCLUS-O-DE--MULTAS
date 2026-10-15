@@ -114,11 +114,11 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
     <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
     <label>Pontos multa <span class="manual-tag">Manual</span><input id="pontosMulta" placeholder="Preencher manualmente"></label>
-    <label>N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
-    <label>N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
+    <label id="fieldAit">N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
+    <label id="fieldAitOriginaria">N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
     <label>Gastos com veículo <span class="manual-tag">Manual</span><input id="gastosVeiculo" placeholder="Preencher manualmente"></label>
     <label>N° da fatura <span class="field-hint">Preenchimento automático pelo sistema de destino</span><input id="numeroFatura" placeholder="O sistema preencherá automaticamente" disabled><span class="locked-tag">Não preencher manualmente nem extrair da multa.</span></label>
-    <label>Data de vencimento <span class="field-hint" id="dataVencimentoHint">Na fatura, ao lado de “Valor com desconto”</span><input id="dataVencimento" placeholder="DD/MM/AAAA"></label>
+    <label id="fieldDataVencimento">Data de vencimento <span class="field-hint" id="dataVencimentoHint">Na fatura, ao lado de “Valor com desconto”</span><input id="dataVencimento" placeholder="DD/MM/AAAA"></label>
     <label>Pago pelo motorista <span class="manual-tag">Manual</span><input id="pagoMotorista" placeholder="Preencher manualmente"></label>
     <label>Multa descontada <span class="manual-tag">Manual</span><input id="multaDescontada" placeholder="Preencher manualmente"></label>
     <label>Data de desconto <span class="manual-tag">Manual</span><input id="dataDesconto" placeholder="Preencher manualmente"></label>
@@ -137,6 +137,10 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
 (()=>{const body=document.body,themeToggle=document.getElementById('themeToggle'),themeLabel=document.getElementById('themeLabel'),themeIcon=document.getElementById('themeIcon');function setTheme(theme){body.dataset.theme=theme;const dark=theme==='dark';themeLabel.textContent=dark?'Tema claro':'Tema escuro';themeToggle.setAttribute('aria-label',dark?'Mudar para tema claro':'Mudar para tema escuro');themeIcon.innerHTML=dark?'<path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>':'<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"/><circle cx="12" cy="12" r="4"/>';};setTheme('dark');themeToggle.addEventListener('click',()=>setTheme(body.dataset.theme==='dark'?'light':'dark'));const home=document.getElementById('home'),detail=document.getElementById('detail'),toast=document.getElementById('toast');let currentFineType='boleto';
 function openFineType(type){
   currentFineType=type;
+  const isIdentification=type==='identificacao';
+  document.getElementById('fieldAit').style.display=isIdentification?'none':'';
+  document.getElementById('fieldAitOriginaria').style.display=isIdentification?'none':'';
+  document.getElementById('fieldDataVencimento').style.display=isIdentification?'none':'';
   document.getElementById('selectedFineTitle').textContent=type==='identificacao'?'APENAS IDENTIFICAÇÃO':'NÃO IDENTIFICAÇÃO COM BOLETO';
   document.getElementById('selectedFineDescription').textContent=type==='identificacao'
     ?'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.'
@@ -175,7 +179,9 @@ uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.
 pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
- const targetIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
+ const targetIds=currentFineType==='identificacao'
+   ?['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','historicoMulta']
+   :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
@@ -548,13 +554,15 @@ function parseIdentificationFine(raw){
  set('fornecedor',org);
  set('codInfracao',code);
  set('numeroMulta',ait);
- set('ait',ait);
- set('aitOriginaria',origin);
+ if(currentFineType!=='identificacao'){
+   set('ait',ait);
+   set('aitOriginaria',origin);
+ }
  set('tipoOcorrencia','MULTA');
  set('localMulta',[local,municipality].filter(Boolean).join(' - ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',history);
  set('dataInfracao',infDate);
- set('dataVencimento',due);
+ if(currentFineType!=='identificacao')set('dataVencimento',due);
  if(amount){
    const formatted=moneyFmt(amount);
    set('valorLiquido',formatted);
@@ -1095,7 +1103,8 @@ function parsePenaltyPdf(raw){
  if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
 
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,codInfracao,integral,discounted].filter(Boolean).length;
- const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['codInfracao',codInfracao],['localMulta',local&&km&&municipality?[local,'KM '+km,municipality].join(' '):''],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]];
+ const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['codInfracao',codInfracao],['localMulta',currentFineType==='identificacao'?(local&&municipality?[local,municipality].join(' '):''):(local&&km&&municipality?[local,'KM '+km,municipality].join(' '):'')],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate]];
+ if(currentFineType!=='identificacao')required.push(['ait',ait],['aitOriginaria',origin],['dataVencimento',due]);
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
  parseStatus.className='parse-status '+(missing.length?'error':'success');
  parseStatus.textContent=missing.length
