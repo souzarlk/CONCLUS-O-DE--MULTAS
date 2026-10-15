@@ -109,9 +109,7 @@ Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do mode
 | **Local da multa/sinistro** | “Local da infração” e o município na tabela “Código / Município” da área “LOCAL, DATA E HORA DO COMETIMENTO DA INFRAÇÃO” | Montar o endereço da infração + município. Não exigir KM/rodovia, pois este modelo pode conter rua, número e bairro. |
 | **Data da infração** | Data e hora na mesma seção de “Local da infração” | Usar a data/hora desta seção, sem capturar a data da infração originária que aparece nas observações. |
 | **Histórico multa** | “Descrição da Infração” na seção principal “TIPIFICAÇÃO DA INFRAÇÃO” | Capturar a descrição principal da notificação. Não substituir pela descrição do AIT originário em “Outras Observações Gerais”. |
-| **Valor líquido** | “Valor (R$)” em “Informações Complementares” | Para este layout sem tabela de boleto/desconto, usar o único valor monetário apresentado. |
-| **Des. valor** | Não há valor com desconto neste modelo | Considerar **R$ 0,00**, sem inferir desconto. |
-| **Prejuízo valor** | Calculado | Como não há desconto, usar o mesmo valor de “Valor líquido”. |
+| **Valor** | “Valor (R$)” em “Informações Complementares” | Este tipo mostra apenas um campo de valor, com o rótulo **Valor**. Usar o único valor monetário apresentado. Não exibir nem preencher os campos “Des. valor” e “Prejuízo valor” neste modelo. |
 | **Data de vencimento** | Não aplicável a este tipo | Ocultar o campo e não reutilizar a data limite para defesa prévia como vencimento do boleto. |
 | **Centro de custo** | Regra de negócio separada da multa | Aplicar somente mapeamentos confirmados. O mapeamento existente **CRC DA COSTA TRANSPORTES LTDA → FROTA CRC** não deve ser estendido automaticamente a outra razão social/sufixo sem confirmação. |
 
@@ -123,7 +121,7 @@ Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do mode
 - [ ] O endereço urbano é aceito sem KM/rodovia, e o município vem da linha “Código / Município”.
 - [ ] O AIT principal e o originário ficam em campos separados.
 - [ ] A data/hora da seção principal não é substituída pela data/hora da multa originária.
-- [ ] O valor único é usado como líquido; o desconto fica em zero porque o documento não apresenta valor com desconto.
+- [ ] O valor único é exibido no campo “Valor”; os campos “Des. valor” e “Prejuízo valor” ficam ocultos e sem preenchimento automático neste modelo.
 - [ ] O motorista permanece manual quando não está identificado no documento.
 
 ## 5. Manutenção do registro
