@@ -532,7 +532,14 @@ function parseIdentificationFine(raw){
  const typificationText=typificationStart>=0?flat.slice(typificationStart,typificationEnd):flat;
  // First try an inline form if OCR preserves the label and its value adjacent.
  const inlinePoints=typificationText.match(/\bPontua[cç][aã]o\s*[:.]?\s*(\d{1,2})\b/i);
- if(inlinePoints)points=inlinePoints[1];
+ if(inlinePoints&&Number(inlinePoints[1])<=30)points=inlinePoints[1];
+ // Strongest fallback: the main typification table places the short "Pontuação" value
+ // immediately before the long Código RENAINF number. Work over the entire typification
+ // section, not only rows after the description heading; OCR/PDF.js may reorder those rows.
+ if(!points){
+   const pointNearRenainf=typificationText.match(/\b(\d{1,2})\s+(?=\d{8,}\b)/);
+   if(pointNearRenainf&&Number(pointNearRenainf[1])<=30)points=pointNearRenainf[1];
+ }
  // Then check the row carrying the code and subsequent rows before the description or equipment fields.
  if(!points){
    const startRow=typificationStart>=0?rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i.test(row)):-1;
