@@ -552,10 +552,6 @@ function parseIdentificationFine(raw){
  let code='';
  const codeLabelRegex=/C[oó]digo\s+da\s+Infra[cç][aã]o/i;
  const codeLabelRows=rows.map((row,index)=>({row,index,match:codeLabelRegex.exec(row)})).filter(item=>item.match);
- const bottomDeclarationIndex=(()=> {
-   for(let i=rows.length-1;i>=0;i--)if(/DECLARA[CÇ][AÃ]O\s+DE\s+IDENTIFICA[CÇ][AÃ]O/i.test(rows[i]))return i;
-   return -1;
- })();
  const readFourDigitCodeAfterLabel=(labelRowIndex,limit=7)=>{
    if(labelRowIndex<0||labelRowIndex>=rows.length)return '';
    const labelMatch=codeLabelRegex.exec(rows[labelRowIndex]);
@@ -574,13 +570,11 @@ function parseIdentificationFine(raw){
    }
    return '';
  };
- // Prefer "Código da Infração" in the lower declaration, because the same code is
- // repeated there and its value is aligned below the matching header.
- let lowerCodeLabel=-1;
- for(const item of codeLabelRows){
-   if(bottomDeclarationIndex>=0&&item.index>=bottomDeclarationIndex)lowerCodeLabel=item.index;
+ // The form repeats “Código da Infração” in the lower declaration. Try every
+ // occurrence from bottom to top; the last one is normally the clearest duplicate.
+ for(let i=codeLabelRows.length-1;i>=0&&!code;i--){
+   code=readFourDigitCodeAfterLabel(codeLabelRows[i].index,8);
  }
- if(lowerCodeLabel>=0)code=readFourDigitCodeAfterLabel(lowerCodeLabel,8);
  // Fallback to the principal upper typification, still requiring a clean four-digit token.
  if(!code){
    const typificationHeader=idxRow(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
