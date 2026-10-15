@@ -466,7 +466,9 @@ function parseIdentificationFine(raw){
  }
  local=local.replace(/\b(?:Data|Hora|C[oó]digo\s*\/?\s*Munic[ií]pio|UF)\b[\s\S]*$/i,'').trim();
  let municipality='';
- const municipalityHeader=idxRow(/C[oó]digo\s*\/?\s*Munic[ií]pio/i);
+ const municipalityHeader=localHeader>=0
+   ?rows.findIndex((row,index)=>index>=localHeader&&index<localHeader+14&&/Munic[ií]pio/i.test(row))
+   :idxRow(/C[oó]digo\s*\/?\s*Munic[ií]pio/i);
  if(municipalityHeader>=0){
    for(let i=municipalityHeader+1;i<Math.min(rows.length,municipalityHeader+5);i++){
      const row=rows[i].toLocaleUpperCase('pt-BR');
