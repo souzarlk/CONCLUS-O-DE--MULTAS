@@ -113,7 +113,7 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
     <label>Tipo ocorrência <span class="field-hint">Preenchimento automático fixo</span><input id="tipoOcorrencia" value="MULTA" readonly></label>
     <label>Data da infração <span class="field-hint">Data e horário após “Código”</span><input id="dataInfracao" placeholder="DD/MM/AAAA HH:MM"></label>
     <label>Data da chegada da cobrança <span class="manual-tag">Manual</span><input id="dataChegada" placeholder="Preencher manualmente" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'"></label>
-    <label>Pontos multa <span class="manual-tag">Manual</span><input id="pontosMulta" placeholder="Preencher manualmente"></label>
+    <label id="fieldPontosMulta">Pontos multa <span class="manual-tag" id="pontosMultaManualTag">Manual</span><input id="pontosMulta" placeholder="Preencher manualmente"></label>
     <label id="fieldAit">N° AIT <span class="field-hint">Extraído de “Auto de Infração”</span><input id="ait" data-field="N° AIT" placeholder="Será preenchido pelo PDF"></label>
     <label id="fieldAitOriginaria">N° AIT originária <span class="field-hint">Auto da infração originária</span><input id="aitOriginaria" placeholder="Será preenchido pelo PDF"></label>
     <label>Gastos com veículo <span class="manual-tag">Manual</span><input id="gastosVeiculo" placeholder="Preencher manualmente"></label>
@@ -141,6 +141,8 @@ function openFineType(type){
   document.getElementById('fieldAit').style.display=isIdentification?'none':'';
   document.getElementById('fieldAitOriginaria').style.display=isIdentification?'none':'';
   document.getElementById('fieldDataVencimento').style.display=isIdentification?'none':'';
+  document.getElementById('pontosMultaManualTag').style.display=isIdentification?'none':'';
+  document.getElementById('pontosMulta').placeholder=isIdentification?'Será preenchido pelo documento':'Preencher manualmente';
   document.getElementById('fieldPrejuizoValor').style.display=isIdentification?'none':'';
   document.getElementById('fieldDescontoValor').style.display=isIdentification?'none':'';
   document.getElementById('valorLiquidoLabel').textContent=isIdentification?'Valor':'Valor líquido';
@@ -185,10 +187,11 @@ uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.
 pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
+ if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  const targetIds=currentFineType==='identificacao'
-   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','valorLiquido','localMulta','dataInfracao','historicoMulta']
+   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','valorLiquido','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
- const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',valorLiquido:'Valor líquido',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
+ const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',pontosMulta:'Pontos multa',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
  const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
@@ -518,6 +521,55 @@ function parseIdentificationFine(raw){
      if(direct)code=direct[1];
    }
  }
+ // Pontos multa: extrair a pontuação da tabela principal "TIPIFICAÇÃO DA INFRAÇÃO".
+ // No layout marcado, o valor fica associado ao cabeçalho "Pontuação", entre Artigo (CTB) e Código RENAINF.
+ let points='';
+ const typificationStart=upper.search(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
+ const obsStart=upper.search(/OUTRAS\s+OBSERV/i);
+ const equipmentStart=upper.search(/EQUIPAMENTO\s*\/?\s*INSTRUMENTO/i);
+ const sectionStops=[obsStart,equipmentStart].filter(pos=>pos>typificationStart&&typificationStart>=0);
+ const typificationEnd=sectionStops.length?Math.min(...sectionStops):Math.min(flat.length,Math.max(0,typificationStart)+1800);
+ const typificationText=typificationStart>=0?flat.slice(typificationStart,typificationEnd):flat;
+ // First try an inline form if OCR preserves the label and its value adjacent.
+ const inlinePoints=typificationText.match(/\bPontua[cç][aã]o\s*[:.]?\s*(\d{1,2})\b/i);
+ if(inlinePoints)points=inlinePoints[1];
+ // Then check the row carrying the code and subsequent rows before the description or equipment fields.
+ if(!points){
+   const startRow=typificationStart>=0?rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i.test(row)):-1;
+   const codeRow=startRow>=0?rows.findIndex((row,index)=>index>=startRow&&/C[oó]digo\s+da\s+Infra[cç][aã]o/i.test(row)):-1;
+   const descriptionRow=startRow>=0?rows.findIndex((row,index)=>index>startRow&&/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i.test(row)):-1;
+   const endRow=descriptionRow>=0?descriptionRow:Math.min(rows.length,(codeRow>=0?codeRow:startRow)+8);
+   // Locate value row that has the main code, with the points value immediately before the long RENAINF number.
+   for(let i=Math.max(0,codeRow>=0?codeRow+1:startRow);i<endRow&&!points;i++){
+     const row=rows[i];
+     if(/Código\s+RENAINF|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\)/i.test(row)&&!/\b\d{3,5}\b.*\b\d{1,2}\s+\d{8,}\b/i.test(row))continue;
+     const adjacent=row.match(/\b(\d{1,2})\s+(?=\d{8,}\b)/);
+     if(adjacent&&Number(adjacent[1])<=30)points=adjacent[1];
+   }
+   // Fall back to the last short numeric cell in a data row after the code value and before RENAINF.
+   if(!points){
+     for(let i=Math.max(0,codeRow>=0?codeRow+1:startRow);i<endRow&&!points;i++){
+       const row=rows[i];
+       if(!/\b\d{3,5}\b/.test(row))continue;
+       const beforeRenainf=row.split(/\b(?:Código\s+RENAINF|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\))/i)[0];
+       const tokens=[...beforeRenainf.matchAll(/\b(\d{1,2})\b/g)].map(m=>m[1]).filter(n=>Number(n)<=30);
+       if(tokens.length){
+         const candidate=tokens[tokens.length-1];
+         if(Number(candidate)>=0)points=candidate;
+       }
+     }
+   }
+ }
+ // Final textual fallback: inspect only the principal typification section, not the lower declaration or observations.
+ if(!points&&typificationText){
+   const label=/\bPontua[cç][aã]o\b/i.exec(typificationText);
+   if(label){
+     const tail=typificationText.slice(label.index+label[0].length,label.index+label[0].length+300);
+     const beforeRenainf=tail.split(/\b(?:Código\s+RENAINF|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\))/i)[0];
+     const matches=[...beforeRenainf.matchAll(/\b(\d{1,2})\b/g)].map(m=>m[1]).filter(n=>Number(n)<=30);
+     if(matches.length)points=matches[matches.length-1];
+   }
+ }
  // Endereço da infração: a digitalização pode truncar o rótulo ou dividir o endereço em várias linhas.
  // Ler o bloco de localização até a tabela Data/Hora/Código-Município; nunca buscar endereço nas observações da multa originária.
  let local='';
@@ -688,6 +740,7 @@ function parseIdentificationFine(raw){
  set('veiculo',plate);
  set('fornecedor',org);
  set('codInfracao',code);
+ set('pontosMulta',points);
  set('numeroMulta',multaNumber||ait);
  if(currentFineType!=='identificacao'){
    set('ait',ait);
