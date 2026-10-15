@@ -460,36 +460,57 @@ function parseIdentificationFine(raw){
      if(m)code=m[1];
    }
  }
- // Address from "Local da Infração", unlike the road/KM layout of the boleto model.
+ // Endereço da infração: a digitalização pode truncar o rótulo ou dividir o endereço em várias linhas.
+ // Ler o bloco de localização até a tabela Data/Hora/Código-Município; nunca buscar endereço nas observações da multa originária.
  let local='';
- const localHeader=idxRow(/Local\s+da\s+Infra[cç][aã]o/i);
+ const localLabelRe=/\bLocal\s+da\s+(?:Infra(?:[cç][aã]o)?|[|I!])?/i;
+ let localHeader=idxRow(localLabelRe);
+ if(localHeader<0)localHeader=idxRow(/\bLocal\s+da\b/i);
+ const addressParts=[];
  if(localHeader>=0){
-   for(let i=localHeader+1;i<Math.min(rows.length,localHeader+5);i++){
-     let candidate=clean(rows[i]);
-     candidate=candidate.replace(/\b(?:Data|Hora|C[oó]digo\s*\/?\s*Munic[ií]pio|UF)\b[\s\S]*$/i,'').trim();
-     if(candidate.length>=8&&/[A-ZÀ-Ü]{3}/i.test(candidate)&&!/\b(?:IDENTIFICA[CÇ][AÃ]O|PONTUA[CÇ][AÃ]O|REN AINF|UF|PLACA)\b/i.test(candidate)){
-       local=candidate;break;
+   const localLabel=localLabelRe.exec(rows[localHeader]||'');
+   if(localLabel){
+     const tail=clean(rows[localHeader].slice(localLabel.index+localLabel[0].length));
+     if(tail&&!/^(?:Nome|CPF|CNPJ|UF|IDENTIFICA[CÇ][AÃ]O|DATA|HORA)\b/i.test(tail)&&!/(?:Transportador|Embarcador|Infrator|CPF\s*\/?\s*CNPJ)/i.test(tail))addressParts.push(tail);
+   }
+   for(let i=localHeader+1;i<Math.min(rows.length,localHeader+14);i++){
+     const row=clean(rows[i]);
+     if(!row)continue;
+     if(/\b\d{2}[/.]\d{2}[/.]\d{4}\b/.test(row))break;
+     if(/^(?:Data|Hora)\b/i.test(row)||/Código\s*\/?\s*Munic[ií]pio/i.test(row))break;
+     if(/^(?:IDENTIFICA[CÇ][AÃ]O|CPF\s*\/?\s*CNPJ|CPF\/CNPJ|UF(?:\s|$)|Nome\s+do\s+(?:Transportador|Embarcador)|Matr[ií]cula\s+do\s+Agente|Assinatura|N[uú]mero\s+de\s+Registro|Infrator)$/i.test(row))continue;
+     if(/^(?:Local\s+da|Data\s+Hora|C[oó]digo\s+da\s+Infra[cç][aã]o|Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|TIPIFICA[CÇ][AÃ]O)\b/i.test(row))continue;
+     if(/^(?:Órg[aã]o\s+Autuador|CET-SANTOS|Placa|Marca\/Modelo)\b/i.test(row))continue;
+     // Linhas curtas, como “AVENIDA” ou “VILA MATHIAS”, podem ser partes do endereço no OCR.
+     if(row.length>=3&&/[A-ZÀ-Ü]{2,}/i.test(row)&&!/(?:Código RENAINF|Data da Expedição|Valor \(R\$\))/i.test(row)){
+       addressParts.push(row);
      }
    }
  }
+ local=clean(addressParts.join(' '))
+   .replace(/\bRAN\s+GEL\b/i,'RANGEL')
+   .replace(/\s*-\s*/g,' - ')
+   .replace(/\s+/g,' ')
+   .replace(/\b(?:Data|Hora|C[oó]digo\s*\/?\s*Munic[ií]pio|UF)\b[\s\S]*$/i,'').trim();
+ // Fallback ancorado no mesmo título, caso o OCR tenha colocado título e endereço na sequência linear.
  if(!local){
-   const m=flat.match(/Local\s+da\s+Infra[cç][aã]o\s+(.{8,120}?)(?=\s+(?:Data|Hora|C[oó]digo\s*\/?\s*Munic[ií]pio|UF)\b)/i);
-   if(m)local=clean(m[1]);
+   const flexibleLocal=/Local\s+da\s+(?:Infra(?:[cç][aã]o)?|[|I!])?\s+([\s\S]{5,160}?)(?=\s+(?:Data\b|Hora\b|C[oó]digo\s*\/?\s*Munic[ií]pio|UF\b))/i;
+   const m=flat.match(flexibleLocal);
+   if(m)local=clean(m[1]).replace(/\bRAN\s+GEL\b/i,'RANGEL');
  }
- local=local.replace(/\b(?:Data|Hora|C[oó]digo\s*\/?\s*Munic[ií]pio|UF)\b[\s\S]*$/i,'').trim();
  let municipality='';
  const municipalityHeader=localHeader>=0
-   ?rows.findIndex((row,index)=>index>=localHeader&&index<localHeader+14&&/Munic[ií]pio/i.test(row))
+   ?rows.findIndex((row,index)=>index>=localHeader&&index<localHeader+18&&/Munic[ií]pio/i.test(row))
    :idxRow(/C[oó]digo\s*\/?\s*Munic[ií]pio/i);
  if(municipalityHeader>=0){
-   for(let i=municipalityHeader+1;i<Math.min(rows.length,municipalityHeader+5);i++){
+   for(let i=municipalityHeader+1;i<Math.min(rows.length,municipalityHeader+7);i++){
      const row=rows[i].toLocaleUpperCase('pt-BR');
      const m=row.match(/\b\d{3,5}\s*\/\s*([A-ZÀ-Ü][A-ZÀ-Ü\s-]{2,}?)(?:\s+(?:AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b|$)/);
      if(m){municipality=clean(m[1]).toLocaleUpperCase('pt-BR');break;}
    }
  }
  if(!municipality&&localHeader>=0){
-   const region=rows.slice(localHeader,Math.min(rows.length,localHeader+12)).join(' ').toLocaleUpperCase('pt-BR');
+   const region=rows.slice(localHeader,Math.min(rows.length,localHeader+18)).join(' ').toLocaleUpperCase('pt-BR');
    const m=region.match(/\b\d{3,5}\s*\/\s*(SANTOS|CUBAT[AÃ]O|GUARUJ[AÁ]|S[AÃ]O\s+VICENTE|PRAIA\s+GRANDE|BERTIOGA|MONGAGU[AÁ]|ITANHA[EÉ]M|PERU[IÍ]BE)\b/i);
    if(m)municipality=clean(m[1]).toLocaleUpperCase('pt-BR');
  }
@@ -529,6 +550,35 @@ function parseIdentificationFine(raw){
    const section=sectionStart>=0?flat.slice(sectionStart,sectionEnd>sectionStart?sectionEnd:sectionStart+1000):flat;
    const m=section.match(/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o\s+(.{18,220}?)(?=\s+(?:Equipamento|Observa[cç][oõ]es|Pontua[cç][aã]o|C[oó]digo\s+RENAINF)\b|$)/i);
    if(m)history=clean(m[1]);
+ }
+ // Recuperação por contexto: em algumas digitalizações o OCR perde o título “Descrição da Infração”,
+ // mas mantém a descrição imediatamente após a linha numérica da tipificação principal.
+ if(!history){
+   const mainCodeRow=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
+   const observationsRow=mainCodeRow>=0
+     ?rows.findIndex((row,index)=>index>mainCodeRow&&/OUTRAS\s+OBSERV(?:A[CÇ][OÕ]ES|[A-Z)]{3,})/i.test(row))
+     :idxRow(/OUTRAS\s+OBSERV/i);
+   const end=observationsRow>=0?observationsRow:Math.min(rows.length,(mainCodeRow>=0?mainCodeRow:0)+24);
+   const start=mainCodeRow>=0?mainCodeRow:Math.max(0,end-12);
+   const candidates=[];
+   for(let i=start;i<end;i++){
+     let candidate=clean(rows[i]);
+     candidate=candidate.replace(/\bOUTRAS\s+OBSERV[\s\S]*$/i,'').trim();
+     if(candidate.length<18)continue;
+     if(/^(?:Código\s+da\s+Infração|Desdobramento|Artigo\s*\(CTB\)|Pontuação|Código\s+RENAINF|Data\s+da\s+Expedição|Valor\s*\(R\$\))/i.test(candidate))continue;
+     if(/(?:condutor|infrator|identifica[cç][aã]o|jur[ií]dica)/i.test(candidate)
+       && !/Multa\s+NIC\s+originada/i.test(candidate)
+       && !/^(?:Número\s+de|Data\s+da|Código\s+RENAINF|Equipamento|Medição|Observações)/i.test(candidate)){
+       candidate=candidate.replace(/^ulta\s*,/i,'Multa,');
+       candidate=candidate.replace(/^[^A-ZÀ-Ü]*(?:[|!])?\s*/,'');
+       candidate=candidate.replace(/\s+(?:É\s+)?OUTRAS\s+OBSERV[\s\S]*$/i,'').trim();
+       candidates.push(candidate);
+     }
+   }
+   if(candidates.length){
+     candidates.sort((a,b)=>b.length-a.length);
+     history=clean(candidates[0]);
+   }
  }
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Read the single fine amount under "Informações Complementares".
