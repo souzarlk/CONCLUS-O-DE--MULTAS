@@ -48,7 +48,7 @@
 | **Tipo ocorrência** | Regra fixa do sistema | Sempre “MULTA”; não extrair da multa. |
 | **Data da infração** | Bloco da infração, rótulos **Data** e **Hora**, junto à área “Município da Infração” (print 4) | Combinar a data e o horário da ocorrência. Não confundir com postagem, vencimento, prazo de recurso ou data do arquivo. |
 | **Data da chegada da cobrança** | Não extraído pelo parser atual | Campo manual. |
-| **Pontos multa** | Não extraído pelo parser atual | Campo manual. |
+| **Pontos multa** | Modelo “NÃO IDENTIFICAÇÃO COM BOLETO”: manual. Modelo “APENAS IDENTIFICAÇÃO”: “Pontuação” na tabela principal “TIPIFICAÇÃO DA INFRAÇÃO” | No segundo modelo, preencher automaticamente a partir da célula “Pontuação”, inclusive quando o OCR separar os valores em linhas. O JPEG de referência marca 7; este valor é apenas exemplo e muda conforme a multa. |
 | **N° AIT** | **Auto de Infração** principal, no bloco da infração (print 5) | Extrair o identificador completo com letras, números e sufixo se existir. Excluir o AIT originário; nunca escolher apenas a primeira sequência numérica encontrada no PDF. |
 | **N° AIT originária** | Rótulo **Auto de Infração Originária** (print 6) | Capturar o identificador associado especificamente a esse rótulo, separado do AIT principal. |
 | **Gastos com veículo** | Não extraído pelo parser atual | Campo manual. |
@@ -104,6 +104,7 @@ Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do mode
 | **Motorista** | “Identificação do Condutor” / “Nome do Condutor” | O campo pode estar em branco. Não inferir o motorista; manter manual. |
 | **Fornecedor** | “Órgão Autuador” | Capturar o nome real do órgão a partir da linha de valores, sem confundir com “Código Órgão”. |
 | **Cod infração** | Campo “Código da Infração” na tabela principal “TIPIFICAÇÃO DA INFRAÇÃO” (linha de valores destacada na imagem anotada) | Ler o valor da linha de dados abaixo do cabeçalho; não capturar “Artigo (CTB)” (257) nem a tipificação da multa originária em “Outras Observações Gerais” (5550/0). O código muda conforme a multa. |
+| **Pontos multa** | “Pontuação” na tabela principal “TIPIFICAÇÃO DA INFRAÇÃO” | Extrair o valor alinhado ao cabeçalho “Pontuação” (7 no JPEG de referência), inclusive quando o OCR separar a linha de valores. O valor varia a cada multa. |
 | **N° multa** | Cabeçalho “Nº do Auto” na tabela inferior “Declaração de Identificação do Condutor / Infrator” (imagem anotada) | Capturar o número alinhado a esse cabeçalho para o formulário. Não usar o número do AIT originário que consta em “Outras Observações Gerais”. Se o OCR não identificar a tabela inferior, usar o Auto de Infração principal como alternativa. |
 | **N° AIT** e **N° AIT originária** | Não usados como campos separados neste tipo | Ocultar os dois campos e não exigir sua leitura na validação deste modelo, mesmo que o documento contenha identificadores em outras seções. |
 | **Local da multa/sinistro** | “Local da infração” e o município na tabela “Código / Município” da área “LOCAL, DATA E HORA DO COMETIMENTO DA INFRAÇÃO” | Montar o endereço da infração + município. Não exigir KM/rodovia, pois este modelo pode conter rua, número e bairro. O OCR pode dividir o endereço em várias linhas ou truncar o rótulo “Local da Infração”; buscar dentro do mesmo bloco até a linha Data/Hora/Código-Município. |
@@ -118,6 +119,7 @@ Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do mode
 - [ ] O segundo cartão abre “APENAS IDENTIFICAÇÃO” e reutiliza os mesmos campos do primeiro.
 - [ ] O parser específico do segundo modelo não modifica o parser do boleto.
 - [ ] O valor de “Código da Infração” vem da tipificação principal; a tipificação das observações pertence ao AIT originário.
+- [ ] “Pontos multa” é preenchido a partir do cabeçalho “Pontuação” da tipificação principal, e continua manual no modelo com boleto.
 - [ ] O endereço urbano é aceito sem KM/rodovia, e o município vem da linha “Código / Município”.
 - [ ] O AIT principal e o originário ficam em campos separados.
 - [ ] A data/hora da seção principal não é substituída pela data/hora da multa originária.
