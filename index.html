@@ -538,7 +538,12 @@ function parseIdentificationFine(raw){
    const startRow=typificationStart>=0?rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i.test(row)):-1;
    const codeRow=startRow>=0?rows.findIndex((row,index)=>index>=startRow&&/C[oó]digo\s+da\s+Infra[cç][aã]o/i.test(row)):-1;
    const descriptionRow=startRow>=0?rows.findIndex((row,index)=>index>startRow&&/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i.test(row)):-1;
-   const endRow=descriptionRow>=0?descriptionRow:Math.min(rows.length,(codeRow>=0?codeRow:startRow)+8);
+   const endRow=descriptionRow>=0?descriptionRow:Math.min(rows.length,(codeRow>=0?codeRow:startRow)+18);
+   // Combine the rows of the principal typification: OCR/PDF extraction may put the points
+   // and the long RENAINF identifier on separate lines even though they are adjacent columns.
+   const valuesWindow=rows.slice(Math.max(0,codeRow>=0?codeRow+1:startRow),endRow).join(' ');
+   const pointsBeforeRenainf=valuesWindow.match(/\b(\d{1,2})\s+(?=\d{8,}\b)/);
+   if(pointsBeforeRenainf&&Number(pointsBeforeRenainf[1])<=30)points=pointsBeforeRenainf[1];
    // Locate value row that has the main code, with the points value immediately before the long RENAINF number.
    for(let i=Math.max(0,codeRow>=0?codeRow+1:startRow);i<endRow&&!points;i++){
      const row=rows[i];
@@ -546,18 +551,12 @@ function parseIdentificationFine(raw){
      const adjacent=row.match(/\b(\d{1,2})\s+(?=\d{8,}\b)/);
      if(adjacent&&Number(adjacent[1])<=30)points=adjacent[1];
    }
-   // Fall back to the last short numeric cell in a data row after the code value and before RENAINF.
+   // If labels and values are stored as separate rows, keep searching for the points value
+   // immediately before the long RENAINF number in the combined data window. Do not select
+   // the 8 from Article 257, § 8º as if it were the points cell.
    if(!points){
-     for(let i=Math.max(0,codeRow>=0?codeRow+1:startRow);i<endRow&&!points;i++){
-       const row=rows[i];
-       if(!/\b\d{3,5}\b/.test(row))continue;
-       const beforeRenainf=row.split(/\b(?:Código\s+RENAINF|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\))/i)[0];
-       const tokens=[...beforeRenainf.matchAll(/\b(\d{1,2})\b/g)].map(m=>m[1]).filter(n=>Number(n)<=30);
-       if(tokens.length){
-         const candidate=tokens[tokens.length-1];
-         if(Number(candidate)>=0)points=candidate;
-       }
-     }
+     const rowWithRenainf=valuesWindow.match(/\b(\d{1,2})\s+(?=\d{8,}\b)/);
+     if(rowWithRenainf&&Number(rowWithRenainf[1])<=30)points=rowWithRenainf[1];
    }
  }
  // Final textual fallback: inspect only the principal typification section, not the lower declaration or observations.
