@@ -92,6 +92,40 @@ Os prints marcam a posição dos campos, mas os valores impressos mudam a cada d
 - [ ] Campos manuais continuam manuais e N° da fatura não é extraído da multa.
 - [ ] Novo arquivo não reutiliza dados automáticos da multa anterior.
 
+
+## 6. Modelo 2 — “APENAS IDENTIFICAÇÃO” (notificação CET-Santos)
+
+Este tipo usa o mesmo formulário, mas a estrutura da multa é diferente do modelo “NÃO IDENTIFICAÇÃO COM BOLETO”. O parser deve ser separado por tipo e buscar os rótulos do próprio documento, sem alterar as regras do primeiro modelo.
+
+| Campo no site | Origem neste modelo | Regra |
+|---|---|---|
+| **Empresa** | “Nome do Proprietário” na tabela de identificação do proprietário/arrendatário | Capturar a razão social na linha de valores alinhada a esse cabeçalho. |
+| **Veículo** | “Placa” na identificação do veículo | Extrair apenas a placa; tolerar separação de caracteres pelo OCR. |
+| **Motorista** | “Identificação do Condutor” / “Nome do Condutor” | O campo pode estar em branco. Não inferir o motorista; manter manual. |
+| **Fornecedor** | “Órgão Autuador” | Capturar o nome real do órgão a partir da linha de valores, sem confundir com “Código Órgão”. |
+| **Cod infração** | “Código da Infração” da seção principal “TIPIFICAÇÃO DA INFRAÇÃO” | Capturar o código principal (no documento de teste: **5002**). Não usar a tipificação do AIT originário, que aparece em “Outras Observações Gerais” como **5550/0**. O valor é variável. |
+| **N° multa** / **N° AIT** | “Auto de Infração” no início da notificação | Usar o AIT desta notificação. Não usar o AIT originário. |
+| **N° AIT originária** | Texto “Multa NIC originada do Auto de Infração” em “Outras Observações Gerais” | Capturar o número ligado especificamente a esse rótulo. Ele pode ter prefixo diferente do AIT principal. |
+| **Local da multa/sinistro** | “Local da infração” e o município na tabela “Código / Município” da área “LOCAL, DATA E HORA DO COMETIMENTO DA INFRAÇÃO” | Montar o endereço da infração + município. Não exigir KM/rodovia, pois este modelo pode conter rua, número e bairro. |
+| **Data da infração** | Data e hora na mesma seção de “Local da infração” | Usar a data/hora desta seção, sem capturar a data da infração originária que aparece nas observações. |
+| **Histórico multa** | “Descrição da Infração” na seção principal “TIPIFICAÇÃO DA INFRAÇÃO” | Capturar a descrição principal da notificação. Não substituir pela descrição do AIT originário em “Outras Observações Gerais”. |
+| **Valor líquido** | “Valor (R$)” em “Informações Complementares” | Para este layout sem tabela de boleto/desconto, usar o único valor monetário apresentado. |
+| **Des. valor** | Não há valor com desconto neste modelo | Considerar **R$ 0,00**, sem inferir desconto. |
+| **Prejuízo valor** | Calculado | Como não há desconto, usar o mesmo valor de “Valor líquido”. |
+| **Data de vencimento** | “Data Limite para interposição de DEFESA PRÉVIA e/ou identificação do condutor infrator” | Para este tipo, associar esse prazo ao campo de data-limite. Não usar a data da expedição da notificação nem a data da infração originária. |
+| **Centro de custo** | Regra de negócio separada da multa | Aplicar somente mapeamentos confirmados. O mapeamento existente **CRC DA COSTA TRANSPORTES LTDA → FROTA CRC** não deve ser estendido automaticamente a outra razão social/sufixo sem confirmação. |
+
+### Validação específica deste modelo
+
+- [ ] O segundo cartão abre “APENAS IDENTIFICAÇÃO” e reutiliza os mesmos campos do primeiro.
+- [ ] O parser específico do segundo modelo não modifica o parser do boleto.
+- [ ] O valor de “Código da Infração” vem da tipificação principal; a tipificação das observações pertence ao AIT originário.
+- [ ] O endereço urbano é aceito sem KM/rodovia, e o município vem da linha “Código / Município”.
+- [ ] O AIT principal e o originário ficam em campos separados.
+- [ ] A data/hora da seção principal não é substituída pela data/hora da multa originária.
+- [ ] O valor único é usado como líquido; o desconto fica em zero porque o documento não apresenta valor com desconto.
+- [ ] O motorista permanece manual quando não está identificado no documento.
+
 ## 5. Manutenção do registro
 
 Este arquivo é a referência durável do projeto. Atualizar este mapa junto com qualquer alteração relevante no parser. Se o layout da multa mudar, identificar primeiro o rótulo e o bloco de origem, modificar apenas a regra correspondente e revalidar os campos já corretos. Não substituir dados dinâmicos por exemplos fixos.
