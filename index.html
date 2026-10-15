@@ -672,6 +672,16 @@ function parseIdentificationFine(raw){
    const m=infoSection.match(/(?:V?alor\s*\(\s*R\$\s*\))[\s\S]{0,240}?(?:R\$\s*)(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
    if(m)amount=m[1];
  }
+ // O OCR pode omitir o cabeçalho “Informações Complementares”; ancorar diretamente em “Valor (R$)”,
+ // procurar o número monetário R$ mais próximo e nunca usar uma data nem a tipificação das observações.
+ if(!amount){
+   const valueLabels=[...flat.matchAll(/\bV?alor\s*\(\s*R\$\s*\)/ig)];
+   for(const label of valueLabels){
+     const valueRegion=flat.slice(label.index+label[0].length,label.index+label[0].length+420);
+     const moneyMatch=valueRegion.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\b/i);
+     if(moneyMatch){amount=moneyMatch[1];break;}
+   }
+ }
  const moneyNum=v=>Number(String(v||'').replace(/\./g,'').replace(',','.'));
  const moneyFmt=v=>'R$ '+moneyNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
  set('empresa',company);
