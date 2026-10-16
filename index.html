@@ -231,17 +231,17 @@ pdfInput.addEventListener('change',async()=>{
    const allText=sourceTexts.join('\n');
    const ranked=candidates.map((candidate,index)=>({candidate,index,score:targetIds.filter(id=>fieldUsable(id,candidate.values[id])).length})).sort((a,b)=>b.score-a.score||a.index-b.index);
    const merged={...(ranked[0]?.candidate.values||takeSnapshot())};
-   // Normalize the main infraction code after candidates are merged, as PDF.js and OCR can
-   // produce different strings for different passes. Prevent a neighboring "6" becoming "65002".
-   if(currentFineType==='identificacao'&&merged.codInfracao){
-     merged.codInfracao=normalizeInfractionCode(merged.codInfracao);
-   }
    // Fill only missing or incomplete values from another OCR pass; don't replace values
    // recognized by the pass that produced the strongest set of required fields.
    for(const id of autoFieldIds){
      if(fieldUsable(id,merged[id]))continue;
      const backup=ranked.find(entry=>fieldUsable(id,entry.candidate.values[id]));
      if(backup)merged[id]=backup.candidate.values[id];
+   }
+   // Corrige em ambos os modelos o artefato de OCR que cola um "6" da coluna vizinha
+   // ao código real de quatro dígitos (ex.: 65002 deve ser 5002).
+   if(merged.codInfracao){
+     merged.codInfracao=normalizeInfractionCode(merged.codInfracao);
    }
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue)merged.pontosMulta=focusedPointsValue;
