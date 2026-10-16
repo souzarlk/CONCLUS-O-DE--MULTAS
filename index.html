@@ -196,6 +196,16 @@ pdfInput.addEventListener('change',async()=>{
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
  const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
+ const normalizeInfractionCode=value=>{
+   const original=String(value||'').trim();
+   const digits=original.replace(/\D/g,'');
+   // O OCR pode juntar o dígito 6 da borda/coluna anterior ao código de 4 dígitos
+   // (ex.: 65002). Neste modelo, o código principal segue o formato de quatro dígitos.
+   if(/^\d{4}$/.test(digits))return digits;
+   if(/^6\d{4}$/.test(digits))return digits.slice(1);
+   if(/^6\s+\d{4}$/.test(original))return digits.slice(1);
+   return original;
+ };
  const fieldUsable=(id,value)=>{
    const v=String(value||'').trim();if(!v)return false;
    if(id==='localMulta'){
@@ -221,6 +231,11 @@ pdfInput.addEventListener('change',async()=>{
    const allText=sourceTexts.join('\n');
    const ranked=candidates.map((candidate,index)=>({candidate,index,score:targetIds.filter(id=>fieldUsable(id,candidate.values[id])).length})).sort((a,b)=>b.score-a.score||a.index-b.index);
    const merged={...(ranked[0]?.candidate.values||takeSnapshot())};
+   // Normalize the main infraction code after candidates are merged, as PDF.js and OCR can
+   // produce different strings for different passes. Prevent a neighboring "6" becoming "65002".
+   if(currentFineType==='identificacao'&&merged.codInfracao){
+     merged.codInfracao=normalizeInfractionCode(merged.codInfracao);
+   }
    // Fill only missing or incomplete values from another OCR pass; don't replace values
    // recognized by the pass that produced the strongest set of required fields.
    for(const id of autoFieldIds){
