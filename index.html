@@ -534,19 +534,41 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
- // In the owner table, the autuating authority, department code, AIT and owner values share one row.
+ // Fornecedor: o nome do órgão autuador pode aparecer na mesma linha dos cabeçalhos,
+ // na linha seguinte ou separado do código do órgão pelo OCR/PDF.js.
  let org='';
  const orgHeader=idxRow(/Órg[aã]o\s+Autuador/i);
- for(let i=orgHeader+1;orgHeader>=0&&i<Math.min(rows.length,orgHeader+5);i++){
+ const cleanOrgCandidate=value=>{
+   let candidate=clean(value);
+   candidate=candidate.replace(/^(?:Órg[aã]o\s+Autuador)\s*[:.-]?\s*/i,'');
+   candidate=candidate.replace(/\s+(?:C[oó]digo(?:\s+do\s+Órg[aã]o)?|N[ºo°]?\s*do\s+Auto|Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo)\b[\s\S]*$/i,'');
+   candidate=candidate.replace(/\s+\d{4,}\b[\s\S]*$/,'').replace(/\s+/g,' ').trim();
+   return candidate;
+ };
+ // Primeiro, ler o bloco tabular logo abaixo do cabeçalho.
+ for(let i=Math.max(0,orgHeader);orgHeader>=0&&i<Math.min(rows.length,orgHeader+7)&&!org;i++){
    const row=rows[i];
-   const m=row.match(/^\s*(.+?)\s+\d{4,}\b/);
-   if(m){
-     const candidate=clean(m[1]);
-     if(candidate.length>=3&&!/^(?:Código|Data|Hora|Placa|Nome|N[ºo°])/i.test(candidate)){org=candidate;break;}
+   const afterLabel=row.replace(/^.*?Órg[aã]o\s+Autuador\s*[:.-]?/i,'');
+   const variants=[afterLabel,row];
+   for(const variant of variants){
+     const candidate=cleanOrgCandidate(variant);
+     if(candidate.length>=3&&/[A-ZÀ-Ü]{2}/i.test(candidate)&&
+       !/^(?:C[oó]digo|Data|Hora|Placa|Nome|N[ºo°]|Marca|Modelo|UF)\b/i.test(candidate)&&
+       !/^\d/.test(candidate)){
+       org=candidate;break;
+     }
    }
  }
+ // Fallback: procurar um nome de órgão reconhecível próximo ao rótulo, mesmo que
+ // o OCR tenha separado o cabeçalho e o valor em blocos diferentes.
+ if(!org&&orgHeader>=0){
+   const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+9)).join(' ');
+   const authority=region.match(/\b((?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+[A-ZÀ-Ü ]+)?|DER(?:\s*[-/]\s*[A-Z]{2})?|CET\s*[-–]?\s*SANTOS|PREFEITURA\s+(?:MUNICIPAL\s+)?DE\s+[A-ZÀ-Ü ]{3,50}|[A-ZÀ-Ü][A-ZÀ-Ü .'-]{2,55}\s+(?:MUNICIPAL|ESTADUAL|RODOVI[AÁ]RIO)))(?=\s+\d{3,}|\s+(?:C[oó]digo|N[ºo°]|Nome|Placa)\b|$)/i);
+   if(authority)org=cleanOrgCandidate(authority[1]);
+ }
  if(!org){
-   org=firstMatch(/Órg[aã]o\s+Autuador\s+([A-ZÀ-Ü][A-ZÀ-Ü -]{2,40}?)\s+(?=(?:C[oó]digo|N[ºo°]|Nome)\b)/i);
+   const authority=flat.match(/Órg[aã]o\s+Autuador\s*[:.-]?\s*((?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM|DER(?:\s*[-/]\s*[A-Z]{2})?|CET\s*[-–]?\s*SANTOS|PREFEITURA\s+(?:MUNICIPAL\s+)?DE\s+[A-ZÀ-Ü ]{3,50}))/i);
+   if(authority)org=cleanOrgCandidate(authority[1]);
  }
  org=org.replace(/\s+/g,' ').trim();
  // Plate: search around the "Placa" row and accept both old and Mercosul formats.
@@ -804,7 +826,8 @@ function parseIdentificationFine(raw){
  for(let i=Math.max(0,infoHeader);infoHeader>=0&&i<Math.min(infoEnd,infoHeader+10);i++){
    if(/\bV?alor\s*(?:\(\s*R\$\s*\))?/i.test(rows[i])){amountHeader=i;break;}
  }
- const moneyRe=/(?:R\$\s*)(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i;
+ // Aceitar "R$ 130,16" e também "130,16" quando o OCR perde o símbolo da moeda.
+ const moneyRe=/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i;
  if(amountHeader>=0){
    for(let i=amountHeader;i<Math.min(infoEnd,amountHeader+5);i++){
      const row=rows[i];
@@ -821,7 +844,7 @@ function parseIdentificationFine(raw){
    const start=upper.search(/INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES/i);
    const end=upper.search(/OUTRAS\s+OBSERV/i);
    const infoSection=start>=0?flat.slice(start,end>start?end:start+1200):'';
-   const m=infoSection.match(/(?:V?alor\s*\(\s*R\$\s*\))[\s\S]{0,240}?(?:R\$\s*)(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
+   const m=infoSection.match(/(?:V?alor\s*\(\s*R\$\s*\)|V?alor\s*R\$?)[\s\S]{0,300}?(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i);
    if(m)amount=m[1];
  }
  // O OCR pode omitir o cabeçalho “Informações Complementares”; ancorar diretamente em “Valor (R$)”,
