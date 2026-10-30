@@ -209,6 +209,12 @@ pdfInput.addEventListener('change',async()=>{
  };
  const fieldUsable=(id,value)=>{
    const v=String(value||'').trim();if(!v)return false;
+   // AIT/N° multa somente aceita um identificador no formato do auto.
+   // Isso impede que títulos como "TAuto dae Infração" sejam mantidos como dados.
+   if(['ait','numeroMulta','aitOriginaria'].includes(id)){
+     const compact=v.toUpperCase().replace(/\s+/g,'');
+     return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
+   }
    if(id==='localMulta'){
      if(currentFineType==='identificacao')return v.length>=10&&/[A-ZÀ-Ü]{3}/i.test(v);
      return /\bKM\s+\d{1,5}\b/i.test(v)&&v.split(/\s+/).length>=5;
@@ -237,7 +243,8 @@ pdfInput.addEventListener('change',async()=>{
    for(const id of autoFieldIds){
      if(fieldUsable(id,merged[id]))continue;
      const backup=ranked.find(entry=>fieldUsable(id,entry.candidate.values[id]));
-     if(backup)merged[id]=backup.candidate.values[id];
+     // Se nenhuma leitura encontrou um identificador válido, remover o texto incorreto.
+     merged[id]=backup?backup.candidate.values[id]:'';
    }
    // Corrige em ambos os modelos o artefato de OCR que cola um "6" da coluna vizinha
    // ao código real de quatro dígitos (ex.: 65002 deve ser 5002).
