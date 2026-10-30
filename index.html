@@ -535,36 +535,47 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
- // Fornecedor: sempre extrair o conteúdo associado ao rótulo “Órgão Autuador”.
- // O nome do órgão varia conforme o documento; não limitar a uma lista de entidades.
+ // Fornecedor: extrair o valor ligado ao rótulo "Órgão Autuador".
+ // O OCR pode remover acentos e intercalar os cabeçalhos das colunas com os valores.
  let org='';
- const orgHeader=idxRow(/Órg[aã]o\s+Autuador/i);
+ const orgLabelRe=/[oó0]rg[aã]o\s+autuador/i;
+ const orgHeader=idxRow(orgLabelRe);
  const cleanOrgCandidate=value=>{
    let candidate=clean(value);
-   candidate=candidate.replace(/^.*?Órg[aã]o\s+Autuador\s*[:.-]?/i,'');
-   candidate=candidate.replace(/\s+(?:C[oó]digo(?:\s+do\s+Órg[aã]o)?|N[ºo°]?\s*do\s+Auto|Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo|Data|Hora|Munic[ií]pio|UF)\b[\s\S]*$/i,'');
-   candidate=candidate.replace(/\s+\d{4,}\b[\s\S]*$/,'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
-   if(!candidate || /^\d/.test(candidate) || /^(?:C[oó]digo|N[ºo°]?|Placa|Data|Hora|Nome|Marca|Modelo|UF)\b/i.test(candidate))return '';
+   candidate=candidate.replace(/^.*?[oó0]rg[aã]o\s+autuador\s*[:.-]?/i,' ');
+   // Retira rótulos e identificadores de colunas que podem aparecer entre o órgão e seu valor.
+   candidate=candidate.replace(/\b(?:C[oó0]digo(?:\s+do\s+[oó0]rg[aã]o)?|N[ºo°o]?\s*do\s+Auto)\b/ig,' ');
+   candidate=candidate.replace(/\b[A-Z]{1,5}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b/ig,' ');
+   candidate=candidate.replace(/\b\d{3,}\b/g,' ');
+   candidate=candidate.replace(/\s+(?:Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo|Data|Hora|Munic[ií]pio|UF|Esp[eé]cie|Tipo|Endere[cç]o|Observa[cç][oõ]es)\b[\s\S]*$/i,'');
+   candidate=candidate.replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+   if(!candidate || /^\d/.test(candidate) || /^(?:C[oó0]digo|N[ºo°]?|Placa|Data|Hora|Nome|Marca|Modelo|UF)\b/i.test(candidate))return '';
+   if(!/[A-ZÀ-Ü]{2}/i.test(candidate))return '';
    return candidate;
  };
  if(orgHeader>=0){
-   // Tenta o valor na mesma linha do título e, em seguida, nas linhas logo abaixo.
-   for(let i=orgHeader;i<Math.min(rows.length,orgHeader+6)&&!org;i++){
+   // Verifica a linha do rótulo e as linhas seguintes: o órgão pode estar em outra coluna/linha.
+   for(let i=orgHeader;i<Math.min(rows.length,orgHeader+9)&&!org;i++){
      const row=rows[i];
-     const labelMatch=/Órg[aã]o\s+Autuador\s*[:.-]?/i.exec(row);
+     const labelMatch=orgLabelRe.exec(row);
      const rawCandidate=labelMatch?row.slice(labelMatch.index+labelMatch[0].length):row;
      const candidate=cleanOrgCandidate(rawCandidate);
-     if(candidate.length>=3 && /[A-ZÀ-Ü]{2}/i.test(candidate))org=candidate;
+     if(candidate.length>=3)org=candidate;
    }
-   // Alguns PDFs quebram o nome do órgão em mais de uma linha do OCR.
+   // Última tentativa: juntar as linhas próximas quando o OCR divide o nome em vários trechos.
    if(!org){
-     const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+5)).join(' ');
-     const label=/Órg[aã]o\s+Autuador\s*[:.-]?/i.exec(region);
+     const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+9)).join(' ');
+     const label=orgLabelRe.exec(region);
      if(label){
        const candidate=cleanOrgCandidate(region.slice(label.index+label[0].length));
-       if(candidate.length>=3 && /[A-ZÀ-Ü]{2}/i.test(candidate))org=candidate;
+       if(candidate.length>=3)org=candidate;
      }
    }
+ }
+ // Recupera o nome quando o OCR leu a entidade, mas perdeu ou deformou o cabeçalho.
+ if(!org){
+   const knownAgency=flat.match(/\b(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+S[AÃ]O\s+PAULO)?)\b/i);
+   if(knownAgency)org=clean(knownAgency[1]);
  }
  org=org.replace(/\s+/g,' ').trim();
  // Plate: search around the "Placa" row and accept both old and Mercosul formats.
