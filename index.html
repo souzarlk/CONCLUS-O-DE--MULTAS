@@ -462,12 +462,36 @@ function parseIdentificationFine(raw){
  const normalizeAutoNumber=value=>String(value||'').toLocaleUpperCase('pt-BR')
    .replace(/^([A-Z]{2,4})O(?=\d)/,(_,prefix)=>prefix+'0')
    .replace(/\s+/g,'').trim();
- let ait=firstMatch(/\bAuto\s+de\s+Infra[cç][aã]o\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i);
- if(!ait){
-   const head=flat.match(/\bN[ºo°]?\s*do\s+Auto\s+de\s+Infra[cç][aã]o\s+([A-Z0-9][A-Z0-9.\/-]{4,})/i);
-   if(head)ait=clean(head[1]);
- }
- ait=normalizeAutoNumber(ait);
+ // O AIT é o identificador que vem DEPOIS do título "Auto de Infração".
+  // Não devolver o título nem procurar um número distante em outra parte do documento.
+  const aitTitleRe=/(?:T\s*)?A[uú]t[o0]\s+d[e3a]{1,2}\s+Infra[cç]?[aã]o/i;
+  const findAitNumber=value=>{
+    const m=String(value||'').match(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
+    return m?clean(m[1]):'';
+  };
+  let ait='';
+  for(let i=0;i<rows.length&&!ait;i++){
+    const label=aitTitleRe.exec(rows[i]);
+    if(!label)continue;
+    const before=rows[i].slice(0,label.index);
+    const after=rows[i].slice(label.index+label[0].length);
+    if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
+    ait=findAitNumber(after);
+    for(let j=i+1;!ait&&j<Math.min(rows.length,i+4);j++){
+      if(/Origin[aá]ria/i.test(rows[j]))break;
+      if(/(?:Data\s+da\s+Postagem|Data\s+da\s+Infra[cç][aã]o|C[oó]digo\s+da\s+Infra[cç][aã]o|Munic[ií]pio\s+da\s+Infra[cç][aã]o)/i.test(rows[j]))continue;
+      ait=findAitNumber(rows[j]);
+    }
+  }
+  if(!ait){
+    const label=aitTitleRe.exec(flat);
+    if(label&&!/Origin[aá]ria\s*[:.]?\s*$/i.test(flat.slice(Math.max(0,label.index-55),label.index))){
+      const after=flat.slice(label.index+label[0].length,label.index+label[0].length+150);
+      const stop=/\b(?:Data\s+da\s+Postagem|Data\s+da\s+Infra[cç][aã]o|C[oó]digo\s+da\s+Infra[cç][aã]o|Munic[ií]pio|Placa|Nome\s+do\s+Propriet[aá]rio)\b/i.exec(after);
+      ait=findAitNumber(stop?after.slice(0,stop.index):after);
+    }
+  }
+  ait=normalizeAutoNumber(ait);
  let multaNumber='';
  const autoLabelMatches=[...flat.matchAll(/\bN\s*[º°o]\s*do\s+Auto\b/ig)];
  const lastAutoLabel=autoLabelMatches[autoLabelMatches.length-1]||null;
@@ -911,26 +935,37 @@ function parsePenaltyPdf(raw){
    let m;while((m=re.exec(text))!==null){const before=text.slice(Math.max(0,m.index-45),m.index);if(excludeOrigin&&/origin[aá]ria/i.test(before))continue;const val=clean(m[1]);if(/^(?:ORIGIN|ORIGINARIA|INFRA[CÇ]AO|DATA|CODIGO)$/i.test(val))continue;return val}
    return '';
  };
- // O AIT é um identificador estruturado (ex.: 1AA704075-5), não uma palavra
- // que apareça perto do rótulo. Isso impede capturar "Postagem" ou outros títulos.
- const aitTokenRe=/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/ig;
- const aitLabelRe=/Auto\s+(?:de|da)\s+Infra[cç][aã]o/ig;
- let ait='';
- let aitLabel;
- while((aitLabel=aitLabelRe.exec(text))!==null){
-   const before=text.slice(Math.max(0,aitLabel.index-60),aitLabel.index);
-   const after=text.slice(aitLabelRe.lastIndex,aitLabelRe.lastIndex+260);
-   if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
-   const token=aitTokenRe.exec(after);
-   aitTokenRe.lastIndex=0;
-   if(token){ait=clean(token[1]).toUpperCase();break;}
- }
- if(!ait){
-   const candidates=[...text.matchAll(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/ig)];
-   const main=candidates.find(m=>!/Origin[aá]ria/i.test(text.slice(Math.max(0,m.index-80),m.index+20)));
-   if(main)ait=clean(main[1]).toUpperCase();
- }
- let origin=firstMatch([
+ // O AIT é o identificador que aparece DEPOIS do título "Auto de Infração".
+  // Procurar na mesma linha e, se necessário, nas linhas logo seguintes.
+  const aitTitleRe=/(?:T\s*)?A[uú]t[o0]\s+d[e3a]{1,2}\s+Infra[cç]?[aã]o/i;
+  const findAitNumber=value=>{
+    const m=String(value||'').match(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
+    return m?clean(m[1]).toUpperCase():'';
+  };
+  let ait='';
+  for(let i=0;i<sourceRows.length&&!ait;i++){
+    const label=aitTitleRe.exec(sourceRows[i]);
+    if(!label)continue;
+    const before=sourceRows[i].slice(0,label.index);
+    const after=sourceRows[i].slice(label.index+label[0].length);
+    if(/Origin[aá]ria\s*[:.]?\s*$/i.test(before)||/^\s*Origin[aá]ria\b/i.test(after))continue;
+    ait=findAitNumber(after);
+    for(let j=i+1;!ait&&j<Math.min(sourceRows.length,i+4);j++){
+      if(/Origin[aá]ria/i.test(sourceRows[j]))break;
+      if(/(?:Data\s+da\s+Postagem|Data\s+da\s+Infra[cç][aã]o|C[oó]digo\s+da\s+Infra[cç][aã]o|Munic[ií]pio\s+da\s+Infra[cç][aã]o)/i.test(sourceRows[j]))continue;
+      ait=findAitNumber(sourceRows[j]);
+    }
+  }
+  if(!ait){
+    const label=aitTitleRe.exec(text);
+    if(label&&!/Origin[aá]ria\s*[:.]?\s*$/i.test(text.slice(Math.max(0,label.index-60),label.index))){
+      const after=text.slice(label.index+label[0].length,label.index+label[0].length+150);
+      const stop=/\b(?:Data\s+da\s+Postagem|Data\s+da\s+Infra[cç][aã]o|C[oó]digo\s+da\s+Infra[cç][aã]o|Munic[ií]pio|Placa|Nome\s+do\s+Propriet[aá]rio)\b/i.exec(after);
+      ait=findAitNumber(stop?after.slice(0,stop.index):after);
+    }
+  }
+  // Se houver apenas o título, manter o campo vazio em vez de inventar um valor.
+  let origin=firstMatch([
    /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
    /Auto\s+(?:de|da)\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
  ]);
