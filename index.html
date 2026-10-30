@@ -145,6 +145,7 @@ function openFineType(type){
   document.getElementById('pontosMulta').placeholder=isIdentification?'Será preenchido pelo documento':'Preencher manualmente';
   document.getElementById('fieldPrejuizoValor').style.display=isIdentification?'none':'';
   document.getElementById('fieldDescontoValor').style.display=isIdentification?'none':'';
+  document.getElementById('fieldValorLiquido').style.display=isIdentification?'none':'';
   document.getElementById('valorLiquidoLabel').textContent=isIdentification?'Valor':'Valor líquido';
   document.getElementById('valorLiquidoHint').textContent=isIdentification
     ?'Valor total indicado em “Valor (R$)”'
@@ -190,7 +191,7 @@ pdfInput.addEventListener('change',async()=>{
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
  const targetIds=currentFineType==='identificacao'
-   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','valorLiquido','pontosMulta','localMulta','dataInfracao','historicoMulta']
+   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',pontosMulta:'Pontos multa',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -534,41 +535,36 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
- // Fornecedor: o nome do órgão autuador pode aparecer na mesma linha dos cabeçalhos,
- // na linha seguinte ou separado do código do órgão pelo OCR/PDF.js.
+ // Fornecedor: sempre extrair o conteúdo associado ao rótulo “Órgão Autuador”.
+ // O nome do órgão varia conforme o documento; não limitar a uma lista de entidades.
  let org='';
  const orgHeader=idxRow(/Órg[aã]o\s+Autuador/i);
  const cleanOrgCandidate=value=>{
    let candidate=clean(value);
-   candidate=candidate.replace(/^(?:Órg[aã]o\s+Autuador)\s*[:.-]?\s*/i,'');
-   candidate=candidate.replace(/\s+(?:C[oó]digo(?:\s+do\s+Órg[aã]o)?|N[ºo°]?\s*do\s+Auto|Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo)\b[\s\S]*$/i,'');
-   candidate=candidate.replace(/\s+\d{4,}\b[\s\S]*$/,'').replace(/\s+/g,' ').trim();
+   candidate=candidate.replace(/^.*?Órg[aã]o\s+Autuador\s*[:.-]?/i,'');
+   candidate=candidate.replace(/\s+(?:C[oó]digo(?:\s+do\s+Órg[aã]o)?|N[ºo°]?\s*do\s+Auto|Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo|Data|Hora|Munic[ií]pio|UF)\b[\s\S]*$/i,'');
+   candidate=candidate.replace(/\s+\d{4,}\b[\s\S]*$/,'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+   if(!candidate || /^\d/.test(candidate) || /^(?:C[oó]digo|N[ºo°]?|Placa|Data|Hora|Nome|Marca|Modelo|UF)\b/i.test(candidate))return '';
    return candidate;
  };
- // Primeiro, ler o bloco tabular logo abaixo do cabeçalho.
- for(let i=Math.max(0,orgHeader);orgHeader>=0&&i<Math.min(rows.length,orgHeader+7)&&!org;i++){
-   const row=rows[i];
-   const afterLabel=row.replace(/^.*?Órg[aã]o\s+Autuador\s*[:.-]?/i,'');
-   const variants=[afterLabel,row];
-   for(const variant of variants){
-     const candidate=cleanOrgCandidate(variant);
-     if(candidate.length>=3&&/[A-ZÀ-Ü]{2}/i.test(candidate)&&
-       !/^(?:C[oó]digo|Data|Hora|Placa|Nome|N[ºo°]|Marca|Modelo|UF)\b/i.test(candidate)&&
-       !/^\d/.test(candidate)){
-       org=candidate;break;
+ if(orgHeader>=0){
+   // Tenta o valor na mesma linha do título e, em seguida, nas linhas logo abaixo.
+   for(let i=orgHeader;i<Math.min(rows.length,orgHeader+6)&&!org;i++){
+     const row=rows[i];
+     const labelMatch=/Órg[aã]o\s+Autuador\s*[:.-]?/i.exec(row);
+     const rawCandidate=labelMatch?row.slice(labelMatch.index+labelMatch[0].length):row;
+     const candidate=cleanOrgCandidate(rawCandidate);
+     if(candidate.length>=3 && /[A-ZÀ-Ü]{2}/i.test(candidate))org=candidate;
+   }
+   // Alguns PDFs quebram o nome do órgão em mais de uma linha do OCR.
+   if(!org){
+     const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+5)).join(' ');
+     const label=/Órg[aã]o\s+Autuador\s*[:.-]?/i.exec(region);
+     if(label){
+       const candidate=cleanOrgCandidate(region.slice(label.index+label[0].length));
+       if(candidate.length>=3 && /[A-ZÀ-Ü]{2}/i.test(candidate))org=candidate;
      }
    }
- }
- // Fallback: procurar um nome de órgão reconhecível próximo ao rótulo, mesmo que
- // o OCR tenha separado o cabeçalho e o valor em blocos diferentes.
- if(!org&&orgHeader>=0){
-   const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+9)).join(' ');
-   const authority=region.match(/\b((?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+[A-ZÀ-Ü ]+)?|DER(?:\s*[-/]\s*[A-Z]{2})?|CET\s*[-–]?\s*SANTOS|PREFEITURA\s+(?:MUNICIPAL\s+)?DE\s+[A-ZÀ-Ü ]{3,50}|[A-ZÀ-Ü][A-ZÀ-Ü .'-]{2,55}\s+(?:MUNICIPAL|ESTADUAL|RODOVI[AÁ]RIO)))(?=\s+\d{3,}|\s+(?:C[oó]digo|N[ºo°]|Nome|Placa)\b|$)/i);
-   if(authority)org=cleanOrgCandidate(authority[1]);
- }
- if(!org){
-   const authority=flat.match(/Órg[aã]o\s+Autuador\s*[:.-]?\s*((?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM|DER(?:\s*[-/]\s*[A-Z]{2})?|CET\s*[-–]?\s*SANTOS|PREFEITURA\s+(?:MUNICIPAL\s+)?DE\s+[A-ZÀ-Ü ]{3,50}))/i);
-   if(authority)org=cleanOrgCandidate(authority[1]);
  }
  org=org.replace(/\s+/g,' ').trim();
  // Plate: search around the "Placa" row and accept both old and Mercosul formats.
