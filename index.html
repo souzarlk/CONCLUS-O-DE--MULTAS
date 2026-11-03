@@ -145,6 +145,12 @@ body[data-theme="light"] .theme-toggle{
 @media(max-width:650px){
   .types{grid-template-columns:1fr}
 }
+
+/* Status dos novos modelos em desenvolvimento: amarelo para diferenciar dos disponíveis. */
+.status.in-development{color:#facc15}
+.status.in-development:before{background:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.16),0 0 11px rgba(250,204,21,.42)}
+body[data-theme="light"] .type.available .status.in-development{color:#9a6700}
+body[data-theme="light"] .type.available .status.in-development:before{background:#d69e00;box-shadow:0 0 0 3px rgba(214,158,0,.14),0 0 9px rgba(214,158,0,.25)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}</script>
 </head>
@@ -193,7 +199,7 @@ body[data-theme="light"] .theme-toggle{
     <h2 id="identificationNewTypeTitle">IDENTIFICAÇÃO</h2>
   </div>
   <div class="type-footer">
-    <span class="status">Em desenvolvimento</span>
+    <span class="status in-development">Em desenvolvimento</span>
     <button class="access-btn" id="openIdentificationNew" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </div>
 </article>
@@ -203,7 +209,7 @@ body[data-theme="light"] .theme-toggle{
     <h2 id="identificationBoletoTypeTitle">IDENTIFICAÇÃO COM BOLETO</h2>
   </div>
   <div class="type-footer">
-    <span class="status">Em desenvolvimento</span>
+    <span class="status in-development">Em desenvolvimento</span>
     <button class="access-btn" id="openIdentificationBoleto" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </div>
 </article>
