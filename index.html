@@ -494,21 +494,34 @@ pdfInput.addEventListener('change',async()=>{
  };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
-   // O recorte cobre somente a linha do VALOR, logo abaixo do cabeçalho.
-   // São feitas duas leituras numéricas independentes; só aceitamos o código
-   // quando as duas segmentações concordam, evitando aceitar dígitos espúrios.
+   // Leitura sequencial (não paralela) para evitar disputa entre workers Tesseract.
    const readDigits=async mode=>{
      const raw=await recognize(region.canvas,'Conferindo os dígitos do código da infração…',mode,'0123456789');
      const matches=[...String(raw||'').matchAll(/(?:^|\D)(\d{4})(?=\D|$)/g)].map(match=>match[1]);
      const unique=[...new Set(matches)];
      return unique.length===1?unique[0]:'';
    };
-   const [psm6,psm11]=await Promise.all([readDigits(6),readDigits(11)]);
-   if(psm6&&psm11&&psm6===psm11){
-     const normalized=normalizeInfractionCode(psm6);
-     if(/^\d{3}-\d$/.test(normalized))return normalized;
+   const readings=[];
+   for(const mode of [6,11,7]){
+     const code=await readDigits(mode);
+     if(code)readings.push(code);
+     const count=readings.filter(value=>value===code).length;
+     if(code&&count>=2){
+       const normalized=normalizeInfractionCode(code);
+       if(/^\d{3}-\d$/.test(normalized))return normalized;
+     }
    }
-   // Em caso de divergência, não preencher com um palpite.
+   return '';
+ };
+ const readInfractionCodeFromContext=async region=>{
+   if(!region||!region.canvas)return '';
+   const outputs=[];
+   for(const mode of [6,11]){
+     const raw=await recognize(region.canvas,'Lendo o título e o valor da célula Código da infração…',mode);
+     const code=extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+raw,false);
+     if(code)outputs.push(code);
+     if(outputs.length>=2&&outputs[0]===outputs[1])return outputs[0];
+   }
    return '';
  };
  const buildIdentificationTargetCrops=source=>{
@@ -520,8 +533,9 @@ pdfInput.addEventListener('change',async()=>{
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
      // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
-     {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
-     {name:'Código da infração - valor isolado alternativo',left:.06,right:.17,top:.34,bottom:.37,mode:11,code:true},
+     {name:'Código da infração - valor isolado',left:.055,right:.22,top:.335,bottom:.385,mode:6,code:true},
+     {name:'Código da infração - valor isolado alternativo',left:.055,right:.22,top:.335,bottom:.385,mode:11,code:true},
+     {name:'Código da infração - título e valor',left:.05,right:.61,top:.30,bottom:.39,mode:6,codeContext:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
      {name:'Código da infração - alternativa',left:.05,right:.46,top:.30,bottom:.37,mode:11},
@@ -557,7 +571,7 @@ pdfInput.addEventListener('change',async()=>{
        pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
      }
      ctx.putImageData(pixels,0,0);
-     return {name:region.name,mode:region.mode,canvas:crop,owner:!!region.owner,code:!!region.code};
+     return {name:region.name,mode:region.mode,canvas:crop,owner:!!region.owner,code:!!region.code,codeContext:!!region.codeContext};
    });
  };
  const recognizeFocusedPoints=async(sourceCanvas)=>{
@@ -624,9 +638,12 @@ pdfInput.addEventListener('change',async()=>{
                if(region.code){
                  const focusedCode=await readFocusedInfractionCode(region);
                  if(focusedCode)focusedInfractionCodeValue=focusedCode;
+               }else if(region.codeContext){
+                 const contextualCode=await readInfractionCodeFromContext(region);
+                 if(contextualCode)focusedInfractionCodeValue=contextualCode;
                }
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
-               missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
+               missing=addCandidate((region.code||region.codeContext?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
              }
            }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
@@ -707,9 +724,12 @@ pdfInput.addEventListener('change',async()=>{
              if(region.code){
                const focusedCode=await readFocusedInfractionCode(region);
                if(focusedCode)focusedInfractionCodeValue=focusedCode;
+             }else if(region.codeContext){
+               const contextualCode=await readInfractionCodeFromContext(region);
+               if(contextualCode)focusedInfractionCodeValue=contextualCode;
              }
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
-             missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
+             missing=addCandidate((region.code||region.codeContext?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
            }
          }finally{
            targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
