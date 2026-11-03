@@ -219,8 +219,20 @@ pdfInput.addEventListener('change',async()=>{
      return /[A-Z]{3}/.test(normalized);
    }
    if(id==='localMulta'){
-     // Exigir o formato solicitado: Local/Rodovia + KM + Município da Infração.
-     return /^.+\bKM\s+\d{1,5}\s+[A-ZÀ-Ü]{3,}/i.test(v);
+     // Exigir somente "Rodovia KM número Município", sem hora, código ou texto de outras seções.
+     const match=v.match(/^(.+?)\s+KM\s+(\d{1,5})\s+(.+)$/i);
+     if(!match)return false;
+     const city=match[3].trim();
+     if(/\d|\b\d{1,2}:\d{2}\b|AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O|LIMITE\s+REGULAMENTADO|MEDI[CÇ][AÃ]O\s+REALIZADA|VALOR\s+CONSIDERADO|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|MOTIVO\s+DO\s+N[AÃ]O|INFORMA[CÇ][AÃ]O\s+IMPORTANTE/i.test(city))return false;
+     const tokens=city.toLocaleUpperCase('pt-BR').split(/\s+/);
+     if(!tokens.length||tokens.length>6)return false;
+     for(const token of tokens){
+       const letters=token.replace(/[^A-ZÀ-Ü]/g,'');
+       if(!letters)return false;
+       const vowels=(letters.match(/[AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]/g)||[]).length;
+       if(vowels/letters.length<0.28||/[^AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]{4,}/.test(letters)||/(?:SG|ZS|ZJ|JQ|QJ|KP|PK)/.test(letters))return false;
+     }
+     return true;
    }
    return true;
  };
