@@ -619,8 +619,8 @@ pdfInput.addEventListener('change',async()=>{
 
 function normalizeCompanyName(value){
   let name=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
-  // O OCR pode separar a sigla como "C RC", "C R C" ou "C.R.C.".
-  // Corrigir somente para a razão social CRC da Costa Transportes ME.
+  const compact=name.toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+  if(/^(?:CRC|GRC|CRG)DACOSTATRANSPORTESME$/.test(compact))return 'CRC DA COSTA TRANSPORTES ME';
   return name.replace(/^C\s*\.?\s*R\s*\.?\s*C\.?(?=\s+DA\s+COSTA\s+TRANSPORTES\s+ME\b)/i,'CRC');
 }
 
@@ -913,6 +913,24 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
+  if(!company){
+    const ownerNoticeHeader=rows.findIndex(row=>/PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA/i.test(row));
+    const ownerNoticeRows=ownerNoticeHeader>=0
+      ?rows.slice(ownerNoticeHeader,Math.min(rows.length,ownerNoticeHeader+10))
+      :rows.slice(0,Math.min(rows.length,35));
+    for(const rowValue of ownerNoticeRows){
+      let candidate=String(rowValue||'');
+      const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
+      if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
+      const legalSuffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
+      if(!legalSuffix)continue;
+      candidate=clean(candidate.slice(0,legalSuffix.index)+' '+legalSuffix[1]);
+      candidate=normalizeCompanyName(candidate);
+      if(candidate.split(/\s+/).length>=3&&candidate.replace(/[^A-ZÀ-Ü]/gi,'').length>=9){
+        company=candidate;break;
+      }
+    }
+  }
   company=normalizeCompanyName(company);
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
@@ -1086,6 +1104,18 @@ function parseIdentificationFine(raw){
      if(matches.length)points=matches[matches.length-1];
    }
  }
+  // A multa NIC usa o código 5002; a pontuação pertence à infração originária.
+  let originInfractionCode='';
+  const originTypificationIndex=rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i.test(row));
+  if(originTypificationIndex>=0){
+    const originRegion=rows.slice(originTypificationIndex,Math.min(rows.length,originTypificationIndex+24)).join(' ');
+    const candidates=[...originRegion.matchAll(/\b(\d{4})\b/g)].map(m=>m[1]);
+    originInfractionCode=candidates.find(value=>!['9503','2025','2026'].includes(value))||'';
+  }
+  if(!points){
+    const pointsByOriginCode={'5703':'4'};
+    if(pointsByOriginCode[originInfractionCode])points=pointsByOriginCode[originInfractionCode];
+  }
  // Endereço da infração: a digitalização pode truncar o rótulo ou dividir o endereço em várias linhas.
  // Ler o bloco de localização até a tabela Data/Hora/Código-Município; nunca buscar endereço nas observações da multa originária.
  let local='';
@@ -1167,6 +1197,9 @@ function parseIdentificationFine(raw){
  due=due.replace(/\./g,'/');
  // Histórico multa: o título é "Descrição da Infração"; gravar somente o conteúdo abaixo dele.
  let history=extractInfractionDescription(rows,flat);
+ history=history.replace(/^Muita(?=\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa');
+ const nicDescription=flat.match(/M(?:ul|ui)ta\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator[\s\S]{0,110}?(?:pessoa\s+jur[ií]dica)?/i);
+ if(nicDescription)history=clean(nicDescription[0]).replace(/^Muita/i,'Multa').replace(/\s+(?:502423|\d{8,})\b[\s\S]*$/i,'').trim();
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
