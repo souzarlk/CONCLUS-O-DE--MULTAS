@@ -536,7 +536,7 @@ pdfInput.addEventListener('change',async()=>{
    // Leituras independentes de cada célula: a faixa da empresa inclui o valor
    // abaixo de "Nome", e as demais cobrem descrição/código/pontuação nos dois layouts.
    const regions=[
-     {name:'Órgão Autuador - cabeçalho e valor',left:0,right:1,top:.105,bottom:.255,mode:11},
+     {name:'Órgão Autuador - cabeçalho e valor',left:0,right:1,top:.105,bottom:.255,mode:6},
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      // Lê o título e o número juntos para confirmar a célula principal.
@@ -1368,7 +1368,7 @@ function parseIdentificationFine(raw){
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
   let org='';
   // Tesseract pode omitir um "u" e devolver "Órgão Atuador".
-  const orgLabelRe=/[oó0]rg[aã]o\s+a.{0,2}uador/i;
+  const orgLabelRe=/(?:[oó0]rg[aã]o\s+a.{0,2}uador|\baut[u]?ador\b|\batuador\b)/i;
   const orgHeader=idxRow(orgLabelRe);
   const orgOtherHeaderRe=/\b(?:IDENTIFICA[CÇ][AÃ]O\s+DA(?:\s+AUTUA[CÇ][AÃ]O)?|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo)\b/i;
   const orgValueNoiseRe=/\b(?:N[ºo°]?\s*do\s+Auto|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo|UF)\b/i;
