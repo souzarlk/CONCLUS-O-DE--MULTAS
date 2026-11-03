@@ -493,19 +493,22 @@ pdfInput.addEventListener('change',async()=>{
  };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
-   // O recorte contém somente a célula do código. A whitelist faz o OCR ignorar
-   // completamente o título e qualquer texto adjacente, lendo apenas os dígitos.
-   const numericText=await recognize(region.canvas,'Lendo somente os números da célula Código da infração…',region.mode||6,'0123456789');
-   const tokens=[...String(numericText||'').matchAll(/(?:^|\D)(\d{4,5})(?=\D|$)/g)].map(match=>match[1]);
-   const unique=[...new Set(tokens)];
-   if(unique.length===1){
-     const normalized=normalizeInfractionCode(unique[0]);
+   // O recorte cobre somente a linha do VALOR, logo abaixo do cabeçalho.
+   // São feitas duas leituras numéricas independentes; só aceitamos o código
+   // quando as duas segmentações concordam, evitando aceitar dígitos espúrios.
+   const readDigits=async mode=>{
+     const raw=await recognize(region.canvas,'Conferindo os dígitos do código da infração…',mode,'0123456789');
+     const matches=[...String(raw||'').matchAll(/(?:^|\D)(\d{4})(?=\D|$)/g)].map(match=>match[1]);
+     const unique=[...new Set(matches)];
+     return unique.length===1?unique[0]:'';
+   };
+   const [psm6,psm11]=await Promise.all([readDigits(6),readDigits(11)]);
+   if(psm6&&psm11&&psm6===psm11){
+     const normalized=normalizeInfractionCode(psm6);
      if(/^\d{3}-\d$/.test(normalized))return normalized;
    }
-   // Último fallback: usar o leitor normal do recorte, sem depender de acertar o título.
-   const ordinaryText=await recognize(region.canvas,'Conferindo o código da infração…',region.mode||6);
-   return extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+numericText,true)
-     ||extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+ordinaryText,true);
+   // Em caso de divergência, não preencher com um palpite.
+   return '';
  };
  const buildIdentificationTargetCrops=source=>{
    if(!source||!source.width||!source.height)return [];
@@ -515,8 +518,9 @@ pdfInput.addEventListener('change',async()=>{
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
-     {name:'Código da infração - recorte isolado',left:.075,right:.21,top:.315,bottom:.375,mode:6,code:true},
-     {name:'Código da infração - recorte isolado alternativo',left:.075,right:.21,top:.315,bottom:.375,mode:11,code:true},
+     // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
+     {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
+     {name:'Código da infração - valor isolado alternativo',left:.06,right:.17,top:.34,bottom:.37,mode:11,code:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
      {name:'Código da infração - alternativa',left:.05,right:.46,top:.30,bottom:.37,mode:11},
