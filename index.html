@@ -497,7 +497,10 @@ function extractRoadLocation(sourceRows){
       const vowels=(letters.match(/[AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]/g)||[]).length;
       const vowelRatio=vowels/letters.length;
       const maxConsonantRun=/[^AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]{4,}/.test(letters);
-      if(vowelRatio<0.28||maxConsonantRun)break;
+      // Sequências como "SG" em tokens isolados geralmente são ruído de coluna do OCR,
+      // não parte de um topônimo; preservar combinações usuais de nomes portugueses.
+      const unlikelyPortugueseCluster=/(?:SG|ZS|ZJ|JQ|QJ|KP|PK)/.test(letters);
+      if(vowelRatio<0.28||maxConsonantRun||unlikelyPortugueseCluster)break;
       kept.push(token);
       if(kept.length>=6)break;
     }
