@@ -605,7 +605,11 @@ function extractInfractionDescription(sourceRows,sourceText=''){
     if(stop)candidate=candidate.slice(0,stop.index);
     const numericTail=/\s+(?:\d{2,4}\s*[-/.]\s*\d{1,2}|\d{8,}|\d{2}[/.]\d{2}[/.]\d{4})\b/.exec(candidate);
     if(numericTail)candidate=candidate.slice(0,numericTail.index);
-    candidate=candidate.replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'').replace(/\s+/g,' ').trim();
+    // O código RENAINF/INFRAEST pode aparecer sem o seu rótulo e ficar colado
+    // no final da descrição (ex.: "... pessoa jurídica. 502423").
+    // Remover somente sequências numéricas longas no final, preservando números do texto.
+    candidate=candidate.replace(/(?:\s+\d{5,})+\s*$/,'');
+    candidate=candidate.replace(/[\s.;:,|–—-]+$/g,'').replace(/^[\s:;|–—-]+/g,'').replace(/\s+/g,' ').trim();
     if(candidate.length<12)return '';
     if(/^(?:Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|Equipamento|Instrumento|Observa[cç][oõ]es|C[oó]digo|Data|Hora|Artigo|Base\s+Legal|Pontua[cç][aã]o)\b/i.test(candidate))return '';
     if(!/[A-Za-zÀ-ÿ]{3}/.test(candidate))return '';
