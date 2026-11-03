@@ -227,7 +227,6 @@ pdfInput.addEventListener('change',async()=>{
  };
  const missingFrom=(snapshot,sourceText)=>{
    const missing=targetIds.filter(id=>!fieldUsable(id,snapshot[id]));
-   if(/(?:DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM|\bDER\b|Órg[aã]o\s+Autuador)/i.test(sourceText)&&!String(snapshot.fornecedor||'').trim()&&!missing.includes('fornecedor'))missing.push('fornecedor');
    return missing;
  };
  const candidates=[];const sourceTexts=[];
@@ -610,7 +609,11 @@ function parseIdentificationFine(raw){
       // iniciada por preposição/conjunção (ex.: "DE RODAGEM").
       for(let j=i+1;j<Math.min(rows.length,orgHeader+9);j++){
         const continuation=cleanOrgCandidate(rows[j]);
-        if(!continuation||!/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation))break;
+        if(!continuation)break;
+        const startsWithLinkWord=/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation);
+        const endsWithLinkWord=/\b(?:DE|DA|DO|DAS|DOS|E)$/i.test(candidate);
+        const shortFragment=candidate.split(/\s+/).length<=2;
+        if(!startsWithLinkWord&&!endsWithLinkWord&&!shortFragment)break;
         candidate=clean(candidate+' '+continuation);
       }
       org=candidate;
@@ -1107,7 +1110,11 @@ function parsePenaltyPdf(raw){
       if(!candidate)continue;
       for(let j=i+1;j<Math.min(sourceRows.length,orgHeader+9);j++){
         const continuation=cleanOrgCandidate(sourceRows[j]);
-        if(!continuation||!/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation))break;
+        if(!continuation)break;
+        const startsWithLinkWord=/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation);
+        const endsWithLinkWord=/\b(?:DE|DA|DO|DAS|DOS|E)$/i.test(candidate);
+        const shortFragment=candidate.split(/\s+/).length<=2;
+        if(!startsWithLinkWord&&!endsWithLinkWord&&!shortFragment)break;
         candidate=clean(candidate+' '+continuation);
       }
       org=candidate;
