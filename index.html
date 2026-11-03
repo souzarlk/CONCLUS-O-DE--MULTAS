@@ -464,6 +464,66 @@ function normalizeCompanyName(value){
   return name.replace(/^C\s*\.?\s*R\s*\.?\s*C\.?(?=\s+DA\s+COSTA\s+TRANSPORTES\s+ME\b)/i,'CRC');
 }
 
+function extractRoadLocation(sourceRows){
+  const rows=(Array.isArray(sourceRows)?sourceRows:[])
+    .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
+    .filter(Boolean);
+  const headerIndex=rows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
+  if(headerIndex<0)return null;
+  const states='AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO';
+  const cleanText=value=>String(value||'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+  const parseWindow=raw=>{
+    let value=cleanText(raw).toLocaleUpperCase('pt-BR');
+    const header=/Local\s*\/\s*Rodovia/i.exec(value);
+    if(header)value=value.slice(header.index+header[0].length);
+    // Em PDFs linearizados, as células de cabeçalho podem vir junto com a linha de valores.
+    value=value.replace(/\b(?:KM|METROS|SENTIDO|MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O|UF|C[ÓO]DIGO|DATA|HORA)\b/gi,' ');
+    value=cleanText(value);
+    if(!value)return null;
+    // UF + código + data + hora delimitam o fim da célula de município.
+    const tailRe=new RegExp('\\s+('+states+')\\s+\\d{3,6}\\s+\\d{2}[/.]\\d{2}[/.]\\d{4}\\s+\\d{2}:\\d{2}(?:\\s|$)','i');
+    const tail=tailRe.exec(value);
+    const values=cleanText(tail?value.slice(0,tail.index):value);
+    // Formato completo: rodovia, quilômetro, metros, sentido e município.
+    let m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(\\d{1,5})\\s+(NORTE|SUL|LESTE|OESTE)\\s+(.+)$/i);
+    let road='',km='',city='';
+    if(m){
+      road=cleanText(m[1].replace(/\\s+KM$/i,''));
+      km=cleanText(m[2]);
+      city=cleanText(m[5]);
+    }else{
+      // Algumas versões omitem o sentido ou a coluna de metros.
+      m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(\\d{1,5})\\s+(.+)$/i);
+      if(m){
+        road=cleanText(m[1].replace(/\\s+KM$/i,''));
+        km=cleanText(m[2]);
+        city=cleanText(m[4]);
+      }else{
+        m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(NORTE|SUL|LESTE|OESTE)\\s+(.+)$/i);
+        if(m){
+          road=cleanText(m[1].replace(/\\s+KM$/i,''));
+          km=cleanText(m[2]);
+          city=cleanText(m[4]);
+        }
+      }
+    }
+    city=cleanText(city.replace(/\\b(?:NORTE|SUL|LESTE|OESTE)\\b/ig,' '));
+    road=cleanText(road);
+    km=km.replace(/^KM\\s*/i,'').trim();
+    if(!road||!/^\\d{1,5}$/.test(km)||!city||city.length<3)return null;
+    if(/^(?:LOCAL|RODOVIA|KM|METROS|SENTIDO|MUNIC[IÍ]PIO|UF|C[ÓO]DIGO|DATA|HORA)$/i.test(road))return null;
+    if(/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[IÍ]PIO)$/i.test(city))return null;
+    return {road,km,municipality:city};
+  };
+  // A tabela pode vir numa linha, em duas linhas ou em células OCR separadas.
+  for(let i=headerIndex;i<Math.min(rows.length,headerIndex+4);i++){
+    const combined=rows.slice(i,Math.min(rows.length,headerIndex+11)).join(' ');
+    const parsed=parseWindow(combined);
+    if(parsed)return parsed;
+  }
+  return null;
+}
+
 function parseIdentificationFine(raw){
  const rawText=String(raw||'');
  const flat=rawText.replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
@@ -789,6 +849,7 @@ function parseIdentificationFine(raw){
    const m=flat.match(flexibleLocal);
    if(m)local=clean(m[1]).replace(/\bRAN\s+GEL\b/i,'RANGEL');
  }
+ let km='';
  let municipality='';
  const municipalityHeader=localHeader>=0
    ?rows.findIndex((row,index)=>index>=localHeader&&index<localHeader+18&&/Munic[ií]pio/i.test(row))
@@ -804,6 +865,13 @@ function parseIdentificationFine(raw){
    const region=rows.slice(localHeader,Math.min(rows.length,localHeader+18)).join(' ').toLocaleUpperCase('pt-BR');
    const m=region.match(/\b\d{3,5}\s*\/\s*(SANTOS|CUBAT[AÃ]O|GUARUJ[AÁ]|S[AÃ]O\s+VICENTE|PRAIA\s+GRANDE|BERTIOGA|MONGAGU[AÁ]|ITANHA[EÉ]M|PERU[IÍ]BE)\b/i);
    if(m)municipality=clean(m[1]).toLocaleUpperCase('pt-BR');
+ }
+ // Priorizar a tabela específica "Local / Rodovia", sem confundir com o campo superior "Local da Infração".
+ const routeLocation=extractRoadLocation(rows);
+ if(routeLocation){
+   local=routeLocation.road;
+   km=routeLocation.km;
+   municipality=routeLocation.municipality;
  }
  let infDate='';
  const locationRows=rows.slice(Math.max(0,localHeader),Math.min(rows.length,Math.max(0,localHeader)+12));
@@ -927,7 +995,7 @@ function parseIdentificationFine(raw){
    set('aitOriginaria',origin);
  }
  set('tipoOcorrencia','MULTA');
- set('localMulta',[local,municipality].filter(Boolean).join(' - ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
+ set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',history);
  set('dataInfracao',infDate);
  if(currentFineType!=='identificacao')set('dataVencimento',due);
@@ -1263,7 +1331,14 @@ function parsePenaltyPdf(raw){
    const afterDirection=localContext.match(afterDirectionRe);
    if(afterDirection)municipality=clean(afterDirection[1]).replace(/\s+/g,' ').toLocaleUpperCase('pt-BR');
  }
- // Histórico: ler a linha de valores abaixo de "Penalidade aplicada", ignorando o título da seção e o rodapé.
+ // Priorizar a tabela "Local / Rodovia" e extrair separadamente rodovia, KM e Município da Infração.
+  const routeLocation=extractRoadLocation(sourceRows);
+  if(routeLocation){
+    local=routeLocation.road;
+    km=routeLocation.km;
+    municipality=routeLocation.municipality;
+  }
+  // Histórico: ler a linha de valores abaixo de "Penalidade aplicada", ignorando o título da seção e o rodapé.
  let penalty='';
  const penaltyHeaderRows=[];
  for(let i=0;i<sourceRows.length;i++){
