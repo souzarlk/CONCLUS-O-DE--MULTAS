@@ -419,7 +419,7 @@ pdfInput.addEventListener('change',async()=>{
    const missing=chooseBest();
    // Sempre inspecionar o título + valor da célula principal, mesmo quando o OCR
    // geral já sugeriu um código válido. Isso impede pular a conferência por engano.
-   if(!codeContextChecked&&!missing.includes('codInfracao')){
+   if(!focusedInfractionCodeValue&&!missing.includes('codInfracao')){
      missing.push('codInfracao');
      parseStatus.className='parse-status';
      parseStatus.textContent='Conferindo diretamente o título e a célula “Código da infração”…';
@@ -504,7 +504,7 @@ pdfInput.addEventListener('change',async()=>{
    }
  };
  const readFocusedInfractionCode=async region=>{
-   if(!region||!region.canvas||!codeContextVerified)return '';
+   if(!region||!region.canvas)return '';
    // Neste recorte estreito só existe a célula do código. A primeira leitura
    // é a leitura normal do Tesseract (PSM 6); aceita apenas um token de 4 dígitos.
    // Não exige concordância com PSM 11, que estava fazendo o campo ficar vazio.
@@ -653,7 +653,7 @@ pdfInput.addEventListener('change',async()=>{
                if(region.code){
                  const focusedCode=await readFocusedInfractionCode(region);
                  if(focusedCode)focusedInfractionCodeValue=focusedCode;
-               }else if(region.codeContext){
+               }else if(region.codeContext&&!focusedInfractionCodeValue){
                  const contextualCode=await readInfractionCodeFromContext(region);
                  codeContextChecked=true;
                  if(contextualCode)focusedInfractionCodeValue=contextualCode;
@@ -691,7 +691,7 @@ pdfInput.addEventListener('change',async()=>{
    let missing=chooseBest();
    // O fluxo de PDF também deve executar a conferência contextual do código,
    // mesmo quando o texto extraído da página parece ter preenchido o campo.
-   if(!codeContextChecked&&!missing.includes('codInfracao'))missing.push('codInfracao');
+   if(!focusedInfractionCodeValue&&!missing.includes('codInfracao'))missing.push('codInfracao');
    if(missing.length){
      if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
      const renderAndRecognize=async(useThreshold,segmentationMode=6)=>{
@@ -743,7 +743,7 @@ pdfInput.addEventListener('change',async()=>{
              if(region.code){
                const focusedCode=await readFocusedInfractionCode(region);
                if(focusedCode)focusedInfractionCodeValue=focusedCode;
-             }else if(region.codeContext){
+             }else if(region.codeContext&&!focusedInfractionCodeValue){
                const contextualCode=await readInfractionCodeFromContext(region);
                  codeContextChecked=true;
                  if(contextualCode)focusedInfractionCodeValue=contextualCode;
