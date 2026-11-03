@@ -469,44 +469,92 @@ function extractRoadLocation(sourceRows){
     .filter(Boolean);
   const headerIndex=rows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
   if(headerIndex<0)return null;
+
   const states='AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO';
   const cleanText=value=>String(value||'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+  const sectionStopRe=/\b(?:AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA|LIMITE\s+REGULAMENTADO|MEDI[CÇ][AÃ]O\s+REALIZADA|VALOR\s+CONSIDERADO|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|C[ÓO]DIGO\s+RENAINF|DT\.?\s*LIM\.?\s*IND\.?\s*CONDUTOR|MOTIVO\s+DO\s+N[AÃ]O\s+ACATAMENTO|INFORMA[CÇ][AÃ]O\s+IMPORTANTE|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O)\b/i;
+
+  const trimCity=value=>{
+    let city=cleanText(value).toLocaleUpperCase('pt-BR');
+    // Encerrar no primeiro marcador de coluna posterior ao município.
+    const stateCodeRe=new RegExp('\\s+(?:'+states+')\\s+\\d{3,6}(?:\\s|$)','i');
+    const stateCode=stateCodeRe.exec(city);
+    if(stateCode)city=city.slice(0,stateCode.index);
+    const date=datePatternFallback(city);
+    if(date>=0)city=city.slice(0,date);
+    const clock=city.search(/\b\d{1,2}:\d{2}\b/);
+    if(clock>=0)city=city.slice(0,clock);
+    const section=sectionStopRe.exec(city);
+    if(section)city=city.slice(0,section.index);
+
+    // Descartar artefatos típicos do OCR que aparecem depois do nome da cidade.
+    // Mantém palavras portuguesas e conectores de nomes compostos (ex.: SÃO JOÃO DA BOA VISTA).
+    const tokens=cleanText(city).split(/\s+/);
+    const kept=[];
+    for(const token of tokens){
+      const letters=token.replace(/[^A-ZÀ-Ü]/g,'');
+      if(!letters)break;
+      const vowels=(letters.match(/[AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]/g)||[]).length;
+      const vowelRatio=vowels/letters.length;
+      const maxConsonantRun=/[^AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]{4,}/.test(letters);
+      if(vowelRatio<0.28||maxConsonantRun)break;
+      kept.push(token);
+      if(kept.length>=6)break;
+    }
+    return cleanText(kept.join(' '));
+  };
+  const datePatternFallback=value=>{
+    const m=String(value||'').search(/\b\d{2}[/.]\d{2}[/.]\d{4}\b/);
+    return m;
+  };
+
   const parseWindow=raw=>{
     let value=cleanText(raw).toLocaleUpperCase('pt-BR');
     const header=/Local\s*\/\s*Rodovia/i.exec(value);
     if(header)value=value.slice(header.index+header[0].length);
-    // Em PDFs linearizados, as células de cabeçalho podem vir junto com a linha de valores.
-    value=value.replace(/\b(?:KM|METROS|SENTIDO|MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O|UF|C[ÓO]DIGO|DATA|HORA)\b/gi,' ');
+    // Cortar imediatamente quando começar outra tabela ou bloco da notificação.
+    const section=sectionStopRe.exec(value);
+    if(section)value=value.slice(0,section.index);
+    // Cabeçalhos das colunas não pertencem aos valores.
+    value=value.replace(/\b(?:KM|METROS|SENTIDO|MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O|UF|C[ÓO]DIGO|DATA|HORA|ALINHAMENTO)\b/gi,' ');
     value=cleanText(value);
     if(!value)return null;
-    // UF + código + data + hora delimitam o fim da célula de município.
-    const tailRe=new RegExp('\\s+('+states+')\\s+\\d{3,6}\\s+\\d{2}[/.]\\d{2}[/.]\\d{4}\\s+\\d{2}:\\d{2}(?:\\s|$)','i');
-    const tail=tailRe.exec(value);
-    const values=cleanText(tail?value.slice(0,tail.index):value);
-    // Formato completo: rodovia, quilômetro, metros, sentido e município.
-    let m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
+
+    // Encerrar após a coluna do município: UF + código, data ou horário.
+    const stateCodeRe=new RegExp('\\s+(?:'+states+')\\s+\\d{3,6}(?:\\s|$)','i');
+    const stateCode=stateCodeRe.exec(value);
+    if(stateCode)value=value.slice(0,stateCode.index);
+    const date=datePatternFallback(value);
+    if(date>=0)value=value.slice(0,date);
+    const clock=value.search(/\b\d{1,2}:\d{2}\b/);
+    if(clock>=0)value=value.slice(0,clock);
+    const nextSection=sectionStopRe.exec(value);
+    if(nextSection)value=value.slice(0,nextSection.index);
+    value=cleanText(value);
+
+    // Layout da tabela: Rodovia | KM | Metros | Sentido | Município.
+    let m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
     let road='',km='',city='';
     if(m){
       road=cleanText(m[1].replace(/\s+KM$/i,''));
       km=cleanText(m[2]);
-      city=cleanText(m[5]);
+      city=trimCity(m[5]);
     }else{
-      // Algumas versões omitem o sentido ou a coluna de metros.
-      m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(.+)$/i);
+      // Variações de layout sem sentido ou sem coluna de metros.
+      m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(.+)$/i);
       if(m){
         road=cleanText(m[1].replace(/\s+KM$/i,''));
         km=cleanText(m[2]);
-        city=cleanText(m[4]);
+        city=trimCity(m[4]);
       }else{
-        m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
+        m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
         if(m){
           road=cleanText(m[1].replace(/\s+KM$/i,''));
           km=cleanText(m[2]);
-          city=cleanText(m[4]);
+          city=trimCity(m[4]);
         }
       }
     }
-    city=cleanText(city.replace(/\b(?:NORTE|SUL|LESTE|OESTE)\b/ig,' '));
     road=cleanText(road);
     km=km.replace(/^KM\s*/i,'').trim();
     if(!road||!/^\d{1,5}$/.test(km)||!city||city.length<3)return null;
@@ -514,10 +562,13 @@ function extractRoadLocation(sourceRows){
     if(/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[IÍ]PIO)$/i.test(city))return null;
     return {road,km,municipality:city};
   };
-  // A tabela pode vir numa linha, em duas linhas ou em células OCR separadas.
-  for(let i=headerIndex;i<Math.min(rows.length,headerIndex+4);i++){
-    const combined=rows.slice(i,Math.min(rows.length,headerIndex+11)).join(' ');
-    const parsed=parseWindow(combined);
+
+  // Usar somente a pequena região logo abaixo do título. Não anexar o restante da página.
+  for(let i=headerIndex;i<Math.min(rows.length,headerIndex+5);i++){
+    const segment=rows.slice(i,Math.min(rows.length,i+4));
+    const stopIndex=segment.findIndex((row,index)=>index>0&&sectionStopRe.test(row));
+    const bounded=stopIndex>=0?segment.slice(0,stopIndex):segment;
+    const parsed=parseWindow(bounded.join(' '));
     if(parsed)return parsed;
   }
   return null;
