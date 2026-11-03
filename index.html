@@ -492,6 +492,9 @@ pdfInput.addEventListener('change',async()=>{
    const regions=[
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
+     // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
+     {name:'Código da infração - recorte isolado',left:.075,right:.21,top:.315,bottom:.375,mode:6,code:true},
+     {name:'Código da infração - recorte isolado alternativo',left:.075,right:.21,top:.315,bottom:.375,mode:11,code:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
      {name:'Código da infração - alternativa',left:.05,right:.46,top:.30,bottom:.37,mode:11},
@@ -591,7 +594,7 @@ pdfInput.addEventListener('change',async()=>{
              for(const region of targetCrops){
                if(!missing.length)break;
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
-               missing=addCandidate((region.owner?'__OWNER_REGION__\n':'')+regionText);
+               missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
              }
            }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
@@ -1035,6 +1038,39 @@ function extractAnchoredHistory(sourceRows, sourceText=''){
  return '';
 }
 
+function extractInfractionCodeFromCell(sourceText='',allowUnlabeled=false){
+ const raw=String(sourceText||'').replace(/__INFRACTION_CODE_CELL__/g,' ');
+ const rows=raw.split(/[|\r\n]+/).map(row=>row.replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+ const labelRe=/C[oó0]d[ií1]g[oó0]\s+(?:d[aáo]\s+)?Infra[cç][aã]o/i;
+ const parseValue=value=>{
+   const text=String(value||'').replace(/[–—−]/g,'-').trim();
+   let match=text.match(/(?:^|[^0-9])(\d{3})\s*-?\s*(\d)(?=$|[^0-9])/);
+   if(match)return match[1]+'-'+match[2];
+   match=text.match(/(?:^|[^0-9])(\d{4})(?=$|[^0-9])/);
+   if(match)return match[1].slice(0,3)+'-'+match[1].slice(3);
+   match=text.match(/(?:^|[^0-9])(\d)\s+(\d)\s+(\d)\s+(\d)(?=$|[^0-9])/);
+   if(match)return match[1]+match[2]+match[3]+'-'+match[4];
+   return '';
+ };
+ for(let i=0;i<rows.length;i++){
+   const label=labelRe.exec(rows[i]);
+   if(!label)continue;
+   let value=parseValue(rows[i].slice(label.index+label[0].length));
+   if(value)return value;
+   for(let offset=1;offset<=4&&i+offset<rows.length;offset++){
+     const next=rows[i+offset];
+     if(/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|TIPIFICA[CÇ][AÃ]O|Marca\s*\/\s*Modelo|Placa|Munic[ií]pio/i.test(next))break;
+     value=parseValue(next);
+     if(value)return value;
+   }
+ }
+ if(allowUnlabeled){
+   const matches=[...raw.matchAll(/(?:^|[^0-9])(\d{4})(?=$|[^0-9])/g)];
+   if(matches.length===1)return matches[0][1].slice(0,3)+'-'+matches[0][1].slice(3);
+ }
+ return '';
+}
+
 function extractMainInfractionCode(sourceRows, sourceText=''){
  const rows=(Array.isArray(sourceRows)?sourceRows:[])
    .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
@@ -1381,7 +1417,7 @@ function parseIdentificationFine(raw){
    }
  }
  // Sobrescrever qualquer leitura genérica: o código vem exclusivamente da célula sob "Código da Infração".
- code=extractMainInfractionCode(rows,rawText);
+ code=(rawText.includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(rawText,true):'')||extractMainInfractionCode(rows,rawText);
  // Pontos multa: extrair a pontuação da tabela principal "TIPIFICAÇÃO DA INFRAÇÃO".
  // No layout marcado, o valor fica associado ao cabeçalho "Pontuação", entre Artigo (CTB) e Código RENAINF.
  let points='';
@@ -2085,7 +2121,7 @@ function parsePenaltyPdf(raw){
  // O PDF pode separar os rótulos e os valores em colunas.
  // Sobrescrever buscas amplas: ler apenas a célula "Cód. Infração" da tabela principal
  // ou a célula "Código da Infração" da tipificação NIC, nunca a tabela ORIGINÁRIA.
- codInfracao=extractMainInfractionCode(sourceRows,raw);
+ codInfracao=(String(raw||'').includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(raw,true):'')||extractMainInfractionCode(sourceRows,raw);
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
