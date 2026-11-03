@@ -455,7 +455,7 @@ pdfInput.addEventListener('change',async()=>{
    }
    // O código lido diretamente da célula isolada sempre vence qualquer número
    // encontrado pelo OCR geral ou em outras tabelas da notificação.
-   if(requiresFocusedMainCode)merged.codInfracao=focusedInfractionCodeValue||'';
+   if(requiresFocusedMainCode)merged.codInfracao=focusedInfractionCodeValue||normalizeInfractionCode(merged.codInfracao)||'';
    else if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
@@ -2194,7 +2194,7 @@ function parsePenaltyPdf(raw){
  // O PDF pode separar os rótulos e os valores em colunas.
  // Sobrescrever buscas amplas: ler apenas a célula "Cód. Infração" da tabela principal
  // ou a célula "Código da Infração" da tipificação NIC, nunca a tabela ORIGINÁRIA.
- codInfracao=(String(raw||'').includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(raw,true):'')||extractMainInfractionCode(sourceRows,raw);
+ codInfracao=(String(raw||'').includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(raw,true):'')||extractMainInfractionCode(sourceRows,raw)||normalizeInfractionCode(codInfracao);
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
