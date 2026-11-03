@@ -364,15 +364,17 @@ pdfInput.addEventListener('change',async()=>{
    }
    if(currentFineType==='identificacao'&&id==='empresa'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
-     return /\b(?:ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/.test(normalized)
-       &&v.split(/\s+/).filter(Boolean).length>=3
-       &&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=9;
+     return v.split(/\s+/).filter(Boolean).length>=3
+       &&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=9
+       &&!/\b(?:PESSOA|PROPRIETARIA|VEICULO|INFRACAO|IDENTIFICACAO|ORGAO AUTUADOR|DEPARTAMENTO DE ESTRADAS)\b/.test(normalized);
    }
    if(currentFineType==='identificacao'&&id==='pontosMulta'){
      return /^\d{1,2}$/.test(v)&&Number(v)>=0&&Number(v)<=30;
    }
    if(currentFineType==='identificacao'&&id==='historicoMulta'){
-     return /^Multa,?\s+por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator,?\s+imposta\s+[àa]\s+pessoa\s+jur[ií]dica\.?$/i.test(v);
+     const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+     return v.length>=12&&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=10
+       &&!/\b(?:DESCRICAO DA INFRACAO|PENALIDADE APLICADA|IDENTIFICACAO DO AGENTE|CODIGO RENAINF|BASE LEGAL)\b/.test(normalized);
    }
    if(id==='fornecedor'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -480,13 +482,18 @@ pdfInput.addEventListener('change',async()=>{
    }
  };
  const buildIdentificationTargetCrops=source=>{
-   if(!source||!source.width||!source.height||source.height<source.width)return [];
-   // Faixas do formulário DER. Foram posicionadas para conter o campo Nome,
-   // a Descrição da Infração e a tabela da infração originária/Local-Rodovia.
+   if(!source||!source.width||!source.height)return [];
+   // Leituras independentes de cada célula: a faixa da empresa inclui o valor
+   // abaixo de "Nome", e as demais cobrem descrição/código/pontuação nos dois layouts.
    const regions=[
-     {name:'Empresa',top:.13,bottom:.30,mode:4},
-     {name:'Histórico da multa',top:.265,bottom:.445,mode:6},
-     {name:'Pontos e local',top:.46,bottom:.60,mode:11}
+     {name:'Empresa',owner:true,top:.20,bottom:.35,mode:4},
+     {name:'Histórico da multa',top:.32,bottom:.455,mode:6},
+     {name:'Histórico da multa - alternativa',top:.32,bottom:.455,mode:11},
+     {name:'Código da infração',top:.29,bottom:.355,mode:11},
+     {name:'Pontos multa',top:.40,bottom:.48,mode:6},
+     {name:'Pontos multa - alternativa',top:.40,bottom:.48,mode:11},
+     {name:'Penalidade aplicada',top:.55,bottom:.76,mode:6},
+     {name:'Penalidade aplicada - alternativa',top:.55,bottom:.76,mode:11}
    ];
    const left=0,right=1;
    const scale=Math.min(2.2,Math.max(1.5,3200/source.width));
@@ -516,45 +523,36 @@ pdfInput.addEventListener('change',async()=>{
  const recognizeFocusedPoints=async(sourceCanvas)=>{
    if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
    const ratio=sourceCanvas.width/sourceCanvas.height;
-   // Portrait PDF and square-ish image crops use different page framing.
-   const region=ratio<0.85
-     ?{x:0.365,y:0.607,w:0.145,h:0.037}
-     :{x:0.405,y:0.445,w:0.16,h:0.075};
+   const region=ratio<1?{x:0,y:.36,w:1,h:.23}:{x:0,y:.32,w:1,h:.28};
    const sx=Math.max(0,Math.floor(sourceCanvas.width*region.x));
    const sy=Math.max(0,Math.floor(sourceCanvas.height*region.y));
    const sw=Math.max(1,Math.min(sourceCanvas.width-sx,Math.floor(sourceCanvas.width*region.w)));
    const sh=Math.max(1,Math.min(sourceCanvas.height-sy,Math.floor(sourceCanvas.height*region.h)));
    const crop=document.createElement('canvas');
-   crop.width=sw*5;crop.height=sh*5;
+   crop.width=Math.max(1,Math.round(sw*2.6));crop.height=Math.max(1,Math.round(sh*2.6));
    const ctx=crop.getContext('2d',{willReadFrequently:true});
    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
    ctx.drawImage(sourceCanvas,sx,sy,sw,sh,0,0,crop.width,crop.height);
-   // Convert to grayscale and increase contrast while preserving thin character strokes.
    const pixels=ctx.getImageData(0,0,crop.width,crop.height);
    for(let i=0;i<pixels.data.length;i+=4){
-     const gray=0.299*pixels.data[i]+0.587*pixels.data[i+1]+0.114*pixels.data[i+2];
-     const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.7+128)));
+     const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
+     const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.55+128)));
      pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
    }
    ctx.putImageData(pixels,0,0);
    try{
-     parseStatus.className='parse-status';
-     parseStatus.textContent='Ampliando a célula “Pontuação” para uma leitura específica…';
-     const parseNumber=source=>{
-       const values=String(source||'').match(/\b(\d{1,2})\b/g)||[];
-       const plausible=values.map(Number).filter(n=>Number.isInteger(n)&&n>=0&&n<=30);
-       return plausible.length?String(plausible[plausible.length-1]):'';
+     const parsePoints=source=>{
+       const explicit=[...String(source||'').matchAll(/(?:Pontua[cç][aã]o|Pontos?)\s*[:=|.-]?\s*(\d{1,2})\b/ig)]
+         .map(match=>Number(match[1])).find(n=>Number.isInteger(n)&&n>=0&&n<=30);
+       if(explicit!==undefined)return String(explicit);
+       if(/(?:C[oó]d(?:igo)?\.?\s*Infra[cç][aã]o[\s\S]{0,100}\b5703\b|\b5703\b[\s\S]{0,100}Local\s*\/?\s*Rodovi)/i.test(String(source||'')))return '4';
+       return '';
      };
-     let text=await recognize(crop,'Lendo apenas a pontuação…',6);
-     let points=parseNumber(text);
-     if(!points){
-       text=await recognize(crop,'Repetindo a leitura ampliada da pontuação…',11);
-       points=parseNumber(text);
-     }
+     let text=await recognize(crop,'Leitura focada dos títulos de pontuação e infração originária…',6);
+     let points=parsePoints(text);
+     if(!points){text=await recognize(crop,'Repetindo leitura de pontuação com segmentação alternativa…',11);points=parsePoints(text);}
      return points;
-   }finally{
-     crop.width=0;crop.height=0;
-   }
+   }finally{crop.width=0;crop.height=0;}
  };
  clearAutoFields();fileName.textContent=file.name;parseStatus.className='parse-status';
  parseStatus.textContent=file.type==='application/pdf'?'Lendo o PDF e identificando os campos…':'Lendo a imagem e reconhecendo o texto…';
@@ -577,16 +575,15 @@ pdfInput.addEventListener('change',async()=>{
          enhanced=binaryCanvas(sourceCanvas);
          const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
          missing=addCandidate(secondText);
-         if(currentFineType==='identificacao'&&missing.length){
+         if(missing.length){
            const targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            try{
              for(const region of targetCrops){
+               if(!missing.length)break;
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
-               missing=addCandidate((region.name==='Empresa'?'__OWNER_REGION__\n':'')+regionText);
+               missing=addCandidate((region.owner?'__OWNER_REGION__\n':'')+regionText);
              }
-           }finally{
-             targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
-           }
+           }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
          if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
            const points=await recognizeFocusedPoints(sourceCanvas);
@@ -650,7 +647,7 @@ pdfInput.addEventListener('change',async()=>{
        const thirdOcrText=await renderAndRecognize(false,11);
        missing=addCandidate(thirdOcrText);
      }
-     if(currentFineType==='identificacao'&&missing.length){
+     if(missing.length){
        for(let p=1;p<=Math.min(pdf.numPages,3)&&missing.length;p++){
          let sourceCanvas=null,targetCrops=[];
          try{
@@ -661,8 +658,9 @@ pdfInput.addEventListener('change',async()=>{
            await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
            targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            for(const region of targetCrops){
+             if(!missing.length)break;
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
-             missing=addCandidate((region.name==='Empresa'?'__OWNER_REGION__\n':'')+regionText);
+             missing=addCandidate((region.owner?'__OWNER_REGION__\n':'')+regionText);
            }
          }finally{
            targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
@@ -783,6 +781,167 @@ function extractRoadLocation(sourceRows){
   if(!road||!/^\d{1,5}$/.test(km)||!municipality||municipality.length<3)return null;
   if(/^(?:LOCAL|RODOVIA|KM|METROS|SENTIDO|MUNIC[IÍ]PIO|UF|C[ÓO]DIGO|DATA|HORA)$/i.test(municipality))return null;
   return {road,km,municipality};
+}
+
+
+function extractOwnerCompanyValue(sourceRows, sourceText='', dedicatedRegion=false){
+ const rows=(Array.isArray(sourceRows)?sourceRows:[]).map(x=>String(x||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+ const clean=x=>String(x||'').replace(/^[\s:;|–—-]+|[\s:;|–—-]+$/g,'').replace(/\s+/g,' ').trim();
+ const suffixRe=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?\s*A\.?|SPE)\b/i;
+ const stopRe=/\b(?:Local\s+da\s+Infra[cç][aã]o|IDENTIFICA[CÇ][AÃ]O\s+DO\s+LOCAL|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie|Tipo|CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF|Endere[cç]o|CEP)\b/i;
+ const parseCandidate=value=>{
+   let v=clean(value);
+   const title=/\bNome\b/i.exec(v);
+   if(title)v=v.slice(title.index+title[0].length);
+   const stop=stopRe.exec(v);
+   if(stop)v=v.slice(0,stop.index);
+   const suffix=suffixRe.exec(v);
+   if(!suffix)return '';
+   v=v.slice(0,suffix.index+suffix[0].length);
+   const tokens=v.match(/[A-ZÀ-Ü0-9&.'’()/-]+/ig)||[];
+   const name=clean(tokens.join(' '));
+   if(tokens.length<3||name.replace(/[^A-ZÀ-Ü]/gi,'').length<9)return '';
+   if(/\b(?:PESSOA|PROPRIET[ÁA]RIA|VE[IÍ]CULO|INFRA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O|ÓRG[ÃA]O\s+AUTUADOR)\b/i.test(name))return '';
+   return normalizeCompanyName(name);
+ };
+ const tryTitleRows=(start,end)=>{
+   for(let i=Math.max(0,start);i<end;i++){
+     const row=rows[i]||'',title=/\bNome\b/i.exec(row);
+     if(!title)continue;
+     let value=parseCandidate(row.slice(title.index+title[0].length));
+     if(value)return value;
+     for(let j=i+1;j<Math.min(end,i+5);j++){
+       value=parseCandidate(rows[j]);
+       if(value)return value;
+       if(stopRe.test(rows[j]))break;
+     }
+     value=parseCandidate(rows.slice(i+1,Math.min(end,i+4)).join(' '));
+     if(value)return value;
+   }
+   return '';
+ };
+ const ownerStart=rows.findIndex(row=>/PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA|PROPRIET/i.test(row));
+ const sectionEnd=rows.findIndex((row,index)=>index>(ownerStart>=0?ownerStart:-1)&&/IDENTIFICA[CÇ][AÃ]O\s+DO\s+LOCAL|Local\s+da\s+Infra[cç][aã]o/i.test(row));
+ const ownerEnd=sectionEnd>=0?sectionEnd:(ownerStart>=0?Math.min(rows.length,ownerStart+22):rows.length);
+ let found=tryTitleRows(ownerStart>=0?ownerStart:0,ownerEnd);
+ if(found)return found;
+ if(dedicatedRegion){
+   for(let i=0;i<rows.length;i++){
+     found=parseCandidate(rows[i]);
+     if(found)return found;
+     found=parseCandidate(rows.slice(i,Math.min(rows.length,i+3)).join(' '));
+     if(found)return found;
+   }
+ }
+ const text=String(sourceText||'').replace(/__OWNER_REGION__/g,' ').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ for(const title of text.matchAll(/\bNome\b/ig)){
+   found=parseCandidate(text.slice(title.index+title[0].length,title.index+title[0].length+260));
+   if(found)return found;
+ }
+ return '';
+}
+
+function extractValueBelowHeading(sourceRows, sourceText, headingRe, options={}){
+ const rows=(Array.isArray(sourceRows)?sourceRows:[]).map(x=>String(x||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+ const maxRows=Number(options.maxRows)||3;
+ const minLetters=Number(options.minLetters)||9;
+ const stopRe=options.stopRe||/\b(?:Identifica[cç][aã]o\s+do\s+Agente|C[oó]digo\s+RENAINF|C[oó]d\.?\s*Infra[cç][aã]o|C[oó]digo\s+da\s+Infra[cç][aã]o|Base\s+Legal|Desdob(?:ramento)?\.?|Pontua[cç][aã]o|Data\s+da\s+Infra[cç][aã]o|Data\s+de\s+Vencimento|Hora\s+Infra[cç][aã]o|Valor\s+Integral|Valor\s+Com\s+Desconto|Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|OUTRAS\s+OBSERVA[CÇ][OÕ]ES|INFORMA[CÇ][OÕ]ES\s+IMPORTANTES|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA)\b/i;
+ const cleanValue=value=>{
+   let v=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+   if(!v)return '';
+   const repeated=headingRe.exec(v);
+   if(repeated)v=v.slice(repeated.index+repeated[0].length);
+   const stop=stopRe.exec(v);
+   if(stop)v=v.slice(0,stop.index);
+   v=v.replace(/(?:\s+\d{5,})+\s*$/,'').replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'').replace(/\s+/g,' ').trim();
+   const letters=(v.match(/[A-ZÀ-Ü]{1,}/ig)||[]).join('');
+   if(v.length<8||letters.length<minLetters)return '';
+   if(/^(?:DESCRI[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|PENALIDADE\s+APLICADA|BASE\s+LEGAL|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE)$/i.test(v))return '';
+   return v;
+ };
+ for(let i=0;i<rows.length;i++){
+   const match=headingRe.exec(rows[i]);
+   if(!match)continue;
+   const before=rows[i].slice(0,match.index);
+   if(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$|que\s+a\s*$/i.test(before))continue;
+   const same=cleanValue(rows[i].slice(match.index+match[0].length));
+   if(same)return same;
+   const collected=[];
+   for(let offset=1;offset<=maxRows&&i+offset<rows.length;offset++){
+     const next=rows[i+offset];
+     if(stopRe.test(next)||/^(?:TIPIFICA[CÇ][AÃ]O|INFORMA[CÇ][OÕ]ES\s+IMPORTANTES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b/i.test(next))break;
+     collected.push(next);
+     const value=cleanValue(collected.join(' '));
+     if(value)return value;
+   }
+ }
+ const text=String(sourceText||rows.join(' ')).replace(/[|]+/g,' ').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ const globalRe=new RegExp(headingRe.source,headingRe.flags.includes('g')?headingRe.flags:headingRe.flags+'g');
+ for(const match of text.matchAll(globalRe)){
+   const before=text.slice(Math.max(0,match.index-85),match.index);
+   if(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$|que\s+a\s*$/i.test(before))continue;
+   const value=cleanValue(text.slice(match.index+match[0].length,match.index+match[0].length+520));
+   if(value)return value;
+ }
+ return '';
+}
+
+function extractCodeBelowHeading(sourceRows, sourceText, headingRe, options={}){
+ const rows=(Array.isArray(sourceRows)?sourceRows:[]).map(x=>String(x||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+ const sectionRe=options.sectionRe||null;
+ const preferLast=options.preferLast!==false;
+ const start=sectionRe?rows.findIndex(row=>sectionRe.test(row)):-1;
+ let end=rows.length;
+ if(start>=0){
+   for(let i=start+1;i<rows.length;i++){
+     if(/OUTRAS\s+OBSERVA[CÇ][OÕ]ES|INFORMA[CÇ][OÕ]ES\s+IMPORTANTES/i.test(rows[i])){end=i;break;}
+   }
+ }
+ let indexes=rows.map((row,index)=>({row,index,match:headingRe.exec(row)}))
+   .filter(item=>item.match&&(start<0||(item.index>=start&&item.index<end)))
+   .map(item=>item.index);
+ if(preferLast)indexes.reverse();
+ const parseCode=value=>{
+   const v=String(value||'').replace(/[–—−]/g,'-');
+   let match=v.match(/\b(\d{4})\b/);
+   if(match)return match[1];
+   match=v.match(/\b(\d{3})\s*-\s*(\d)\b/);
+   if(match)return match[1]+'-'+match[2];
+   match=v.match(/\b(\d{3})\s+(\d)\b/);
+   if(match)return match[1]+'-'+match[2];
+   return '';
+ };
+ for(const index of indexes){
+   const match=headingRe.exec(rows[index]);
+   let value=parseCode(rows[index].slice(match.index+match[0].length));
+   if(value)return value;
+   for(let j=index+1;j<Math.min(end,index+6);j++){
+     if(/\b(?:Base\s+Legal|Desdob(?:ramento)?\.?|Data|Hora|Placa|Local\s*\/?\s*Rodovia|TIPIFICA[CÇ][AÃ]O|Valor)\b/i.test(rows[j])&&!/\d{3,4}/.test(rows[j]))break;
+     value=parseCode(rows[j]);
+     if(value)return value;
+   }
+ }
+ const text=String(sourceText||rows.join(' ')).replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
+ const globalRe=new RegExp(headingRe.source,headingRe.flags.includes('g')?headingRe.flags:headingRe.flags+'g');
+ const matches=[...text.matchAll(globalRe)];
+ const ordered=preferLast?matches.reverse():matches;
+ for(const match of ordered){
+   const value=parseCode(text.slice(match.index+match[0].length,match.index+match[0].length+220));
+   if(value)return value;
+ }
+ return '';
+}
+
+function normalizeFineHistory(value){
+ let text=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ text=text
+   .replace(/^M(?:uita|ata|u1ta|ulta)\b/i,'Multa')
+   .replace(/\b(?:mdentifica[cç][aã]o|mentifica[cç][aã]o|menti?fica[cç][aã]o|iemlca[aã]o)\b/ig,'identificação')
+   .replace(/\bimposta\s+a\s+pessoa\b/ig,'imposta à pessoa')
+   .replace(/(?:\s+\d{5,})+\s*$/,'')
+   .replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'').trim();
+ if(text&&!/[.!?]$/.test(text))text+='.';
+ return text;
 }
 
 function extractInfractionDescription(sourceRows,sourceText=''){
@@ -922,50 +1081,8 @@ function parseIdentificationFine(raw){
    }
  }
  origin=origin.toLocaleUpperCase('pt-BR');
- // Empresa: ler os valores sob o cabeçalho "Nome do Proprietário/Arrendatário".
- // A mesma linha pode conter Órgão Autuador, Código do Órgão e N° do Auto antes do nome.
- let company='';
- const ownerNoticeIndex=rows.findIndex(row=>/PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA|PROPRIET/i.test(row));
- const ownerNameIndex=rows.findIndex(row=>/^\s*Nome\s*[:.]?\s*$/i.test(row)||/^\s*Nome\s+(?:do\s+)?Propriet/i.test(row));
- const ownerHeader=idxRow(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?/i);
- const ownerRows=ownerHeader>=0
-   ?rows.slice(ownerHeader,Math.min(rows.length,ownerHeader+6))
-   :ownerNoticeIndex>=0
-     ?rows.slice(ownerNoticeIndex,Math.min(rows.length,ownerNoticeIndex+14))
-     :ownerNameIndex>=0
-       ?rows.slice(ownerNameIndex,Math.min(rows.length,ownerNameIndex+5))
-       :[];
- const extractLegalCompany=rowValue=>{
-   let candidate=String(rowValue||'');
-   const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
-   if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
-   const suffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
-   if(!suffix)return '';
-   candidate=clean(candidate.slice(0,suffix.index)+' '+suffix[1]);
-   candidate=candidate.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
-   const words=candidate.split(/\s+/).filter(Boolean);
-   const letters=candidate.replace(/[^A-ZÀ-Ü]/gi,'');
-   if(words.length<3||letters.length<9)return '';
-   if(/\b(?:PESSOA|PROPRIET[ÁA]RIA|VE[IÍ]CULO|INFRA[CÇ][AÃ]O|DATA|IDENTIFICA[CÇ][AÃ]O)\b/i.test(candidate))return '';
-   return normalizeCompanyName(candidate);
- };
- for(const row of ownerRows){
-   company=extractLegalCompany(row);
-   if(company)break;
- }
- if(!company&&ownerRows.length){
-   // "Nome" and the company value often arrive as separate OCR rows.
-   for(let i=0;i<ownerRows.length&&!company;i++){
-     company=extractLegalCompany(ownerRows[i]);
-   }
- }
- if(!company&&rawText.includes('__OWNER_REGION__')){
-   // The dedicated crop can contain only the legal-name value, without its title.
-   for(const row of rows){
-     company=extractLegalCompany(row);
-     if(company)break;
-   }
- }
+ // Localizar primeiro o título "Nome" e extrair apenas a razão social logo abaixo.
+ let company=extractOwnerCompanyValue(rows,flat,rawText.includes('__OWNER_REGION__'));
  company=normalizeCompanyName(company);
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
@@ -1139,29 +1256,31 @@ function parseIdentificationFine(raw){
      if(matches.length)points=matches[matches.length-1];
    }
  }
-  // A multa NIC usa o código 5002; a pontuação pertence à infração originária.
+  // A pontuação é derivada do código da infração originária, nunca do NIC 5002.
   let originInfractionCode='';
   const originTypificationIndex=rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i.test(row));
-  if(originTypificationIndex>=0){
-    const originRegion=rows.slice(originTypificationIndex,Math.min(rows.length,originTypificationIndex+24)).join(' ');
-    const candidates=[...originRegion.matchAll(/\b(\d{4})\b/g)].map(m=>m[1]);
-    originInfractionCode=candidates.find(value=>!['9503','2025','2026'].includes(value))||'';
-  }
-  if(!originInfractionCode){
-    const routeHeaderIndex=rows.findIndex(row=>/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i.test(row));
-    const routeCodeRegion=routeHeaderIndex>=0
-      ?rows.slice(Math.max(0,routeHeaderIndex-6),routeHeaderIndex).join(' ')
-      :flat.slice(0,Math.min(flat.length,1800));
-    const normalizedRouteCode=routeCodeRegion.toLocaleUpperCase('pt-BR');
-    if(/\b5\s*7\s*0\s*3\b/.test(normalizedRouteCode)
-      ||/\b5\s*7\s*[O0]\s*3\b/.test(normalizedRouteCode)
-      ||/\bS\s*7\s*0\s*3\b/.test(normalizedRouteCode)){
-      originInfractionCode='5703';
+  const routeHeaderForPoints=rows.findIndex(row=>/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i.test(row));
+  const originStartForPoints=originTypificationIndex>=0?originTypificationIndex:Math.max(0,routeHeaderForPoints-24);
+  const originEndForPoints=routeHeaderForPoints>originStartForPoints?routeHeaderForPoints:Math.min(rows.length,originStartForPoints+28);
+  const originCodeLabelRe=/C[oó]d(?:igo)?\.?\s*(?:da\s+)?Infra[cç][aã]o/i;
+  for(let i=originStartForPoints;i<originEndForPoints&&!originInfractionCode;i++){
+    const label=originCodeLabelRe.exec(rows[i]);
+    if(!label)continue;
+    const after=rows[i].slice(label.index+label[0].length);
+    const same=after.match(/\b(\d{4})\b|\b(\d{3})\s*[-–—−]\s*(\d)\b/);
+    if(same){originInfractionCode=same[1]||same[2]+'-'+same[3];break;}
+    for(let j=i+1;j<Math.min(originEndForPoints,i+4)&&!originInfractionCode;j++){
+      if(/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i.test(rows[j]))break;
+      const value=rows[j].match(/\b(\d{4})\b|\b(\d{3})\s*[-–—−]\s*(\d)\b/);
+      if(value)originInfractionCode=value[1]||value[2]+'-'+value[3];
     }
   }
-  if(!originInfractionCode&&/\b5002\b/.test(flat)&&/\b5703(?:[-/]\s*0)?\b/.test(flat)){
-    originInfractionCode='5703';
+  if(!originInfractionCode){
+    const routeCodeRegion=routeHeaderForPoints>=0?rows.slice(Math.max(0,routeHeaderForPoints-10),routeHeaderForPoints).join(' '):flat.slice(0,Math.min(flat.length,1800));
+    const normalizedRouteCode=routeCodeRegion.toLocaleUpperCase('pt-BR');
+    if(/\b5\s*7\s*0\s*3\b/.test(normalizedRouteCode)||/\b5\s*7\s*[O0]\s*3\b/.test(normalizedRouteCode)||/\bS\s*7\s*0\s*3\b/.test(normalizedRouteCode))originInfractionCode='5703';
   }
+  if(!originInfractionCode&&/\b5002\b/.test(flat)&&/\b5703(?:[-/]\s*0)?\b/.test(flat))originInfractionCode='5703';
   {
     const pointsByOriginCode={'5703':'4'};
     if(pointsByOriginCode[originInfractionCode])points=pointsByOriginCode[originInfractionCode];
@@ -1245,25 +1364,12 @@ function parseIdentificationFine(raw){
  // For this notice, the deadline field is the labeled defense/driver-identification cutoff.
  let due=firstMatch(/\bData\s+Limite[\s\S]{0,180}?(\d{2}[/.]\d{2}[/.]\d{4})/i);
  due=due.replace(/\./g,'/');
- // Histórico multa: o título é "Descrição da Infração"; gravar somente o conteúdo abaixo dele.
- let history=extractInfractionDescription(rows,flat);
- history=history.replace(/^Muita(?=\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa');
-  const descriptionHeader=rows.findIndex(row=>/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i.test(row));
-  const descriptionRegion=descriptionHeader>=0
-    ?rows.slice(descriptionHeader,Math.min(rows.length,descriptionHeader+5)).join(' ')
-    :flat;
-  const nicSource=descriptionRegion+' '+flat;
-  const nicDescription=nicSource.match(/\bM(?:ul|ui|a)ta\s*,?\s*por\s+n[aã]o\s+([\wÀ-ÿ]{4,22})\s+do\s+condutor\s+infrator[\s\S]{0,100}?pessoas?\s+jur[ií]dica\b/i);
-  if(nicDescription){
-    history=clean(nicDescription[0])
-      .replace(/^M(?:uita|ata)/i,'Multa')
-      .replace(/\b(?:Mentifica[cç][aã]o|Menti?fica[cç][aã]o|iemlca[aã]o)\b/i,'identificação')
-      .replace(/\bPessoas?\s+jur[ií]dica\b/i,'pessoa jurídica')
-      .replace(/\bimposta\s+a\s+pessoa\b/i,'imposta à pessoa')
-      .trim();
-    if(history&&!/[.!?]$/.test(history))history+='.';
-  }
- history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
+ // Buscar a célula pelo título. Este modelo usa "Descrição da Infração";
+ // o outro formato pode trazer "Penalidade Aplicada".
+ let history=extractValueBelowHeading(rows,flat,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
+ if(!history)history=extractValueBelowHeading(rows,flat,/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i,{maxRows:3,minLetters:9});
+ if(!history)history=extractInfractionDescription(rows,flat);
+ history=normalizeFineHistory(history);
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
  const infoHeader=idxRow(/INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES/i);
@@ -1719,6 +1825,9 @@ function parsePenaltyPdf(raw){
    }
  }
 
+ // Primeiro localizar o título e ler apenas o valor da célula logo abaixo.
+ const anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
+ if(anchoredPenaltyHistory)penalty=normalizeFineHistory(anchoredPenaltyHistory);
  // Código da infração da penalidade aplicada:
  // No impresso, o código fica na linha dos valores, à direita da descrição da penalidade;
  // o cabeçalho "Cód. Infração" fica logo acima e pode aparecer antes de outros cabeçalhos de coluna.
@@ -1797,6 +1906,8 @@ function parsePenaltyPdf(raw){
    }
  }
  // O PDF pode separar os rótulos e os valores em colunas.
+ const anchoredPenaltyCode=extractCodeBelowHeading(sourceRows,text,/C[oó0]d\.?\s*Infra[cç][aã]o/i,{sectionRe:penaltySectionRe,preferLast:true});
+ if(anchoredPenaltyCode)codInfracao=anchoredPenaltyCode;
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
@@ -1844,6 +1955,8 @@ function parsePenaltyPdf(raw){
    }).filter(Boolean);
    if(entityRows.length)company=entityRows[0];
  }
+ const anchoredOwnerCompany=extractOwnerCompanyValue(sourceRows,text,String(raw||'').includes('__OWNER_REGION__'));
+ if(anchoredOwnerCompany)company=anchoredOwnerCompany;
  company=normalizeCompanyName(company);
  if(!plate){
    const labelMatch=/\bPlaca\b/i.exec(text);
