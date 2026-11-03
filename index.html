@@ -512,6 +512,86 @@ pdfInput.addEventListener('change',async()=>{
      await worker.terminate();
    }
  };
+ const readCodeBelowLabelFromCanvas=async sourceCanvas=>{
+   if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
+   const normalizeWord=value=>String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+   const parseCode=value=>{
+     const raw=String(value||'').replace(/[–—−]/g,'-');
+     const formatted=[...raw.matchAll(/(?:^|\\D)(\\d{3})\\s*-\\s*(\\d)(?=$|\\D)/g)].map(m=>m[1]+'-'+m[2]);
+     if(formatted.length===1)return formatted[0];
+     const compact=[...raw.matchAll(/(?:^|\\D)(\\d{4})(?=$|\\D)/g)].map(m=>m[1].slice(0,3)+'-'+m[1].slice(3));
+     if(compact.length===1)return compact[0];
+     const spaced=[...raw.matchAll(/(?:^|\\D)(\\d)\\s+(\\d)\\s+(\\d)\\s+(\\d)(?=$|\\D)/g)].map(m=>m[1]+m[2]+m[3]+'-'+m[4]);
+     if(spaced.length===1)return spaced[0];
+     return '';
+   };
+   const worker=await Tesseract.createWorker('por',1,{logger:m=>{
+     if(m.status==='recognizing text')parseStatus.textContent='Localizando “Cód. Infração” e lendo o valor logo abaixo… '+Math.round((m.progress||0)*100)+'%';
+   }});
+   try{
+     await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1',user_defined_dpi:'450'});
+     const pageResult=await worker.recognize(sourceCanvas);
+     const pageText=pageResult.data.text||'';
+     // Primeiro aproveitar o texto completo quando o OCR preservou título e valor em sequência.
+     let direct=extractCodeImmediatelyAfterCodInfractionLabel([],pageText);
+     if(direct)return direct;
+     const words=(pageResult.data.words||[]).filter(w=>w&&w.text&&w.bbox&&Number.isFinite(w.bbox.x0)&&Number.isFinite(w.bbox.y0));
+     const labels=[];
+     for(let i=0;i<words.length;i++){
+       const first=normalizeWord(words[i].text);
+       if(first.includes('CODINFRACAO')){
+         labels.push({x0:words[i].bbox.x0,y0:words[i].bbox.y0,x1:words[i].bbox.x1,y1:words[i].bbox.y1,short:true});
+         continue;
+       }
+       if(first!=='COD'&&first!=='CODIGO')continue;
+       for(let j=i+1;j<Math.min(words.length,i+4);j++){
+         const next=normalizeWord(words[j].text);
+         if(next==='DA'||next==='DE'||next==='DO')continue;
+         if(next==='INFRACAO'){
+           const a=words[i].bbox,b=words[j].bbox;
+           const centerA=(a.y0+a.y1)/2,centerB=(b.y0+b.y1)/2;
+           if(Math.abs(centerA-centerB)<=Math.max(a.y1-a.y0,b.y1-b.y0)*1.2){
+             labels.push({x0:Math.min(a.x0,b.x0),y0:Math.min(a.y0,b.y0),x1:Math.max(a.x1,b.x1),y1:Math.max(a.y1,b.y1),short:first==='COD'});
+           }
+         }
+         break;
+       }
+     }
+     if(!labels.length)return '';
+     // Preferir o rótulo abreviado "Cód. Infração"; em empate, usar a ocorrência mais baixa da página.
+     labels.sort((a,b)=>(Number(b.short)-Number(a.short))||(b.y0-a.y0));
+     for(const label of labels){
+       const labelHeight=Math.max(8,label.y1-label.y0);
+       const pad=Math.max(labelHeight*4,(label.x1-label.x0)*0.65,36);
+       const sx=Math.max(0,Math.floor(label.x0-pad));
+       const ex=Math.min(sourceCanvas.width,Math.ceil(label.x1+pad));
+       const sy=Math.max(0,Math.floor(label.y1));
+       const ey=Math.min(sourceCanvas.height,Math.ceil(label.y1+labelHeight*12));
+       if(ex<=sx||ey<=sy)continue;
+       const crop=document.createElement('canvas');
+       crop.width=Math.max(1,(ex-sx)*2);crop.height=Math.max(1,(ey-sy)*2);
+       const ctx=crop.getContext('2d');
+       ctx.fillStyle='#fff';ctx.fillRect(0,0,crop.width,crop.height);
+       ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+       ctx.drawImage(sourceCanvas,sx,sy,ex-sx,ey-sy,0,0,crop.width,crop.height);
+       try{
+         const results=[];
+         for(const mode of ['7','6','11']){
+           await worker.setParameters({tessedit_pageseg_mode:mode,preserve_interword_spaces:'1',user_defined_dpi:'600',tessedit_char_whitelist:'0123456789-'});
+           const value=await worker.recognize(crop);
+           const code=parseCode(value.data.text||'');
+           if(code)results.push(code);
+           if(results.length&&results.every(x=>x===results[0]))break;
+         }
+         const unique=[...new Set(results)];
+         if(unique.length===1)return unique[0];
+       }finally{crop.width=0;crop.height=0;}
+     }
+     return '';
+   }finally{
+     await worker.terminate();
+   }
+ };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
    // O OCR pode devolver o número limpo (5002), colar o dígito da borda
@@ -1533,7 +1613,7 @@ function parseIdentificationFine(raw){
    }
  }
  // Sobrescrever qualquer leitura genérica: o código vem exclusivamente da célula sob "Código da Infração".
- code=(rawText.includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(rawText,true):'')||extractMainInfractionCode(rows,rawText);
+ code=extractCodeImmediatelyAfterCodInfractionLabel(rows,rawText)||(rawText.includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(rawText,true):'')||extractMainInfractionCode(rows,rawText);
  // Pontos multa: extrair a pontuação da tabela principal "TIPIFICAÇÃO DA INFRAÇÃO".
  // No layout marcado, o valor fica associado ao cabeçalho "Pontuação", entre Artigo (CTB) e Código RENAINF.
  let points='';
