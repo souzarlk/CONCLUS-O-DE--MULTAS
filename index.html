@@ -257,7 +257,7 @@ pdfInput.addEventListener('change',async()=>{
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue)merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
-   merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(merged.empresa||'')?'FROTA CRC':'';
+   merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+(?:ME|LTDA)/i.test(merged.empresa||'')?'FROTA CRC':'';
    restoreSnapshot(merged);
    const missing=missingFrom(merged,allText);
    if(missing.length){
@@ -457,6 +457,13 @@ pdfInput.addEventListener('change',async()=>{
  }
 });
 
+function normalizeCompanyName(value){
+  let name=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+  // O OCR pode separar a sigla como "C RC", "C R C" ou "C.R.C.".
+  // Corrigir somente para a razão social CRC da Costa Transportes ME.
+  return name.replace(/^C\s*\.?\s*R\s*\.?\s*C\.?(?=\s+DA\s+COSTA\s+TRANSPORTES\s+ME\b)/i,'CRC');
+}
+
 function parseIdentificationFine(raw){
  const rawText=String(raw||'');
  const flat=rawText.replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
@@ -569,6 +576,7 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
+  company=normalizeCompanyName(company);
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
   let org='';
@@ -933,7 +941,7 @@ function parseIdentificationFine(raw){
    }
  }
  // Keep the existing confirmed center-cost rule only for its confirmed legal name.
- set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company)?'FROTA CRC':'');
+ set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+(?:ME|LTDA)/i.test(company)?'FROTA CRC':'');
 }
 
 function parsePenaltyPdf(raw){
@@ -1010,7 +1018,7 @@ function parsePenaltyPdf(raw){
      company=clean(nextFieldMatch?afterName.slice(0,nextFieldMatch.index):afterName.slice(0,180));
      company=company.replace(/\s+(?:TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF).*$/i,'').trim();
      // Evita retornar cabeçalho ou rótulo quando o OCR misturar as colunas.
-     const companyMatch=company.match(/^(.+?\s+LTDA|.+?\s+S\/?A\.?|.+?\s+EIRELI)\b/i);
+     const companyMatch=company.match(/^(.+?\s+(?:ME|EPP|LTDA\.?|S\/?A\.?|EIRELI|SPE))(?=\s|$)/i);
      if(companyMatch)company=clean(companyMatch[1]);
    }
  }
@@ -1420,14 +1428,14 @@ function parsePenaltyPdf(raw){
  // espaços e separadores que aparecem no texto extraído do PDF/OCR.
  if(!company){
    // Não fixar a razão social: usar a primeira entidade legal associada a "Nome".
-   const companyCandidates=[...text.matchAll(/\bNome\s*[:.]?\s*(.{5,150}?\b(?:LTDA\.?|S\/?A\.?|EIRELI|S\.?A\.?|SPE)\b)/ig)];
+   const companyCandidates=[...text.matchAll(/\bNome\s*[:.]?\s*(.{5,150}?\b(?:ME|EPP|LTDA\.?|S\/?A\.?|EIRELI|S\.?A\.?|SPE)\b)/ig)];
    const valid=companyCandidates.map(m=>clean(m[1])).find(v=>v.length>=6&&!/^(?:DA INFRA[CÇ][AÃ]O|PESSOA JUR[IÍ]DICA|TIPIFICA[CÇ][AÃ]O)\b/i.test(v));
    if(valid)company=valid;
  }
  // Recupera a razão social mesmo quando o OCR perde os rótulos do bloco proprietário.
  if(!company){
    const entityRows=sourceRows.map(row=>{
-     const suffix=/\b(LTDA\.?|S\/?\s*A\.?|EIRELI|SPE)\b/i.exec(row);
+     const suffix=/\b(ME|EPP|LTDA\.?|S\/?\s*A\.?|EIRELI|SPE)\b/i.exec(row);
      if(!suffix)return '';
      let prefix=row.slice(0,suffix.index);
      prefix=prefix.replace(/^.*\b(?:Nome|Origin[aá]ria|CNPJ|CPF)\b/i,' ');
@@ -1439,6 +1447,7 @@ function parsePenaltyPdf(raw){
    }).filter(Boolean);
    if(entityRows.length)company=entityRows[0];
  }
+ company=normalizeCompanyName(company);
  if(!plate){
    const labelMatch=/\bPlaca\b/i.exec(text);
    const region=labelMatch?text.slice(labelMatch.index,labelMatch.index+220):'';
@@ -1488,7 +1497,7 @@ function parsePenaltyPdf(raw){
  set('empresa',company);
  // Comportamento original: CRC da Costa Transportes Ltda. -> FROTA CRC.
  // Recalcular em cada leitura a partir da empresa reconhecida no PDF.
- set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+LTDA/i.test(company)?'FROTA CRC':'');
+ set('centroCusto',/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+(?:ME|LTDA)/i.test(company)?'FROTA CRC':'');
  set('numeroMulta',multa);
  set('ait',ait);
  set('aitOriginaria',origin);
