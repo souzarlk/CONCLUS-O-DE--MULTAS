@@ -415,7 +415,7 @@ pdfInput.addEventListener('change',async()=>{
      merged.codInfracao=normalizeInfractionCode(merged.codInfracao);
    }
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
-   if(currentFineType==='identificacao'&&focusedPointsValue)merged.pontosMulta=focusedPointsValue;
+   if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
    merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+(?:ME|LTDA)/i.test(merged.empresa||'')?'FROTA CRC':'';
    restoreSnapshot(merged);
@@ -466,6 +466,35 @@ pdfInput.addEventListener('change',async()=>{
    }finally{
      await worker.terminate();
    }
+ };
+ const buildIdentificationRegionCanvas=source=>{
+   if(!source||!source.width||!source.height||source.height<source.width)return null;
+   // Os campos que falharam estão em três blocos fixos no formulário DER:
+   // empresa, descrição da infração e tabela de rodovia/KM/município.
+   const bands=[{top:.18,bottom:.29},{top:.29,bottom:.44},{top:.46,bottom:.60}];
+   const left=.04,right=.96,scale=Math.min(3,Math.max(1.2,1800/(source.width*(right-left))));
+   const outputWidth=Math.max(1,Math.round(source.width*(right-left)*scale));
+   const gap=24,heights=bands.map(b=>Math.max(1,Math.round(source.height*(b.bottom-b.top)*scale)));
+   const output=document.createElement('canvas');
+   output.width=outputWidth;output.height=heights.reduce((sum,v)=>sum+v,0)+gap*(bands.length-1);
+   const ctx=output.getContext('2d',{willReadFrequently:true});
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,output.width,output.height);
+   ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+   let y=0;
+   for(let i=0;i<bands.length;i++){
+     const band=bands[i],sx=Math.floor(source.width*left),sy=Math.floor(source.height*band.top);
+     const sw=Math.max(1,Math.floor(source.width*(right-left)));
+     const sh=Math.max(1,Math.floor(source.height*(band.bottom-band.top)));
+     ctx.drawImage(source,sx,sy,sw,sh,0,y,output.width,heights[i]);y+=heights[i]+gap;
+   }
+   // Contraste moderado preserva detalhes e fontes pequenas do documento.
+   const pixels=ctx.getImageData(0,0,output.width,output.height);
+   for(let i=0;i<pixels.data.length;i+=4){
+     const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
+     const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.35+128)));
+     pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
+   }
+   ctx.putImageData(pixels,0,0);return output;
  };
  const recognizeFocusedPoints=async(sourceCanvas)=>{
    if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
@@ -531,6 +560,18 @@ pdfInput.addEventListener('change',async()=>{
          enhanced=binaryCanvas(sourceCanvas);
          const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
          missing=addCandidate(secondText);
+         if(currentFineType==='identificacao'&&missing.length){
+           let regionCanvas=null;
+           try{
+             regionCanvas=buildIdentificationRegionCanvas(sourceCanvas);
+             if(regionCanvas){
+               const regionText=await recognize(regionCanvas,'Tentativa 3: leitura ampliada dos campos DER…',11);
+               missing=addCandidate(regionText);
+             }
+           }finally{
+             if(regionCanvas){regionCanvas.width=0;regionCanvas.height=0;}
+           }
+         }
          if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
            const points=await recognizeFocusedPoints(sourceCanvas);
            if(points){focusedPointsValue=points;missing=chooseBest();}
