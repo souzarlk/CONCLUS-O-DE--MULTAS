@@ -340,8 +340,7 @@ pdfInput.addEventListener('change',async()=>{
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
  let focusedInfractionCodeValue='';
- let codeContextVerified=false;
- let codeContextChecked=false;
+ const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
  const targetIds=currentFineType==='identificacao'
    ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
@@ -419,7 +418,7 @@ pdfInput.addEventListener('change',async()=>{
    const missing=chooseBest();
    // Sempre inspecionar o título + valor da célula principal, mesmo quando o OCR
    // geral já sugeriu um código válido. Isso impede pular a conferência por engano.
-   if(!focusedInfractionCodeValue&&!missing.includes('codInfracao')){
+   if(requiresFocusedMainCode&&!focusedInfractionCodeValue&&!missing.includes('codInfracao')){
      missing.push('codInfracao');
      parseStatus.className='parse-status';
      parseStatus.textContent='Conferindo diretamente o título e a célula “Código da infração”…';
@@ -445,7 +444,6 @@ pdfInput.addEventListener('change',async()=>{
    }
    // O código lido diretamente da célula isolada sempre vence qualquer número
    // encontrado pelo OCR geral ou em outras tabelas da notificação.
-   const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
    if(requiresFocusedMainCode)merged.codInfracao=focusedInfractionCodeValue||'';
    else if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
@@ -519,25 +517,6 @@ pdfInput.addEventListener('change',async()=>{
    }
    return '';
  };
- const readInfractionCodeFromContext=async region=>{
-   if(!region||!region.canvas)return '';
-   for(const mode of [4,6,11]){
-     const raw=await recognize(region.canvas,'Identificando o título e o número do campo Código da infração…',mode);
-     const labelRe=/C[oó0]digo[\s\S]{0,28}(?:infra[cç][aã]o|intra[cç][aã]o)/ig;
-     const labels=[...String(raw||'').matchAll(labelRe)];
-     for(const label of labels){
-       codeContextVerified=true;
-       const tail=String(raw||'').slice(label.index+label[0].length,label.index+label[0].length+220);
-       const number=tail.match(/(?:^|\D)(\d{4})(?=\D|$)/);
-       if(number){
-         const code=normalizeInfractionCode(number[1]);
-         if(/^\d{3}-\d$/.test(code))return code;
-       }
-     }
-   }
-   codeContextChecked=true;
-   return '';
- };
  const buildIdentificationTargetCrops=source=>{
    if(!source||!source.width||!source.height)return [];
    // Leituras independentes de cada célula: a faixa da empresa inclui o valor
@@ -546,7 +525,6 @@ pdfInput.addEventListener('change',async()=>{
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      // Primeiro lê título + valor e confirma que é a célula correta.
-     {name:'Código da infração - título e valor',left:.05,right:.61,top:.30,bottom:.39,mode:6,codeContext:true},
      // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
      // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
      {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
@@ -650,16 +628,12 @@ pdfInput.addEventListener('change',async()=>{
              for(const region of targetCrops){
                // A célula do código é conferida mesmo quando os outros campos já foram lidos.
                if(!missing.length&&focusedInfractionCodeValue)break;
-               if(region.code){
+               if(region.code&&requiresFocusedMainCode){
                  const focusedCode=await readFocusedInfractionCode(region);
                  if(focusedCode)focusedInfractionCodeValue=focusedCode;
-               }else if(region.codeContext&&!focusedInfractionCodeValue){
-                 const contextualCode=await readInfractionCodeFromContext(region);
-                 codeContextChecked=true;
-                 if(contextualCode)focusedInfractionCodeValue=contextualCode;
                }
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
-               missing=addCandidate((region.code||region.codeContext?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
+               missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\\n':'')+(region.owner?'__OWNER_REGION__\\n':'')+regionText);
              }
            }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
@@ -691,7 +665,7 @@ pdfInput.addEventListener('change',async()=>{
    let missing=chooseBest();
    // O fluxo de PDF também deve executar a conferência contextual do código,
    // mesmo quando o texto extraído da página parece ter preenchido o campo.
-   if(!focusedInfractionCodeValue&&!missing.includes('codInfracao'))missing.push('codInfracao');
+   if(requiresFocusedMainCode&&!focusedInfractionCodeValue&&!missing.includes('codInfracao'))missing.push('codInfracao');
    if(missing.length){
      if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
      const renderAndRecognize=async(useThreshold,segmentationMode=6)=>{
@@ -740,16 +714,12 @@ pdfInput.addEventListener('change',async()=>{
            targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            for(const region of targetCrops){
              if(!missing.length&&focusedInfractionCodeValue)break;
-             if(region.code){
+             if(region.code&&requiresFocusedMainCode){
                const focusedCode=await readFocusedInfractionCode(region);
                if(focusedCode)focusedInfractionCodeValue=focusedCode;
-             }else if(region.codeContext&&!focusedInfractionCodeValue){
-               const contextualCode=await readInfractionCodeFromContext(region);
-                 codeContextChecked=true;
-                 if(contextualCode)focusedInfractionCodeValue=contextualCode;
              }
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
-             missing=addCandidate((region.code||region.codeContext?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
+             missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\\n':'')+(region.owner?'__OWNER_REGION__\\n':'')+regionText);
            }
          }finally{
            targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
