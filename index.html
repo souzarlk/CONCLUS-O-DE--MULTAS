@@ -467,34 +467,39 @@ pdfInput.addEventListener('change',async()=>{
      await worker.terminate();
    }
  };
- const buildIdentificationRegionCanvas=source=>{
-   if(!source||!source.width||!source.height||source.height<source.width)return null;
-   // Os campos que falharam estão em três blocos fixos no formulário DER:
-   // empresa, descrição da infração e tabela de rodovia/KM/município.
-   const bands=[{top:.18,bottom:.29},{top:.29,bottom:.44},{top:.46,bottom:.60}];
-   const left=.04,right=.96,scale=Math.min(3,Math.max(1.2,1800/(source.width*(right-left))));
+ const buildIdentificationTargetCrops=source=>{
+   if(!source||!source.width||!source.height||source.height<source.width)return [];
+   // Faixas do formulário DER. Foram posicionadas para conter o campo Nome,
+   // a Descrição da Infração e a tabela da infração originária/Local-Rodovia.
+   const regions=[
+     {name:'Empresa',top:.13,bottom:.30,mode:4},
+     {name:'Histórico da multa',top:.265,bottom:.445,mode:6},
+     {name:'Pontos e local',top:.46,bottom:.60,mode:11}
+   ];
+   const left=0,right=1;
+   const scale=Math.min(2.2,Math.max(1.5,3200/source.width));
    const outputWidth=Math.max(1,Math.round(source.width*(right-left)*scale));
-   const gap=24,heights=bands.map(b=>Math.max(1,Math.round(source.height*(b.bottom-b.top)*scale)));
-   const output=document.createElement('canvas');
-   output.width=outputWidth;output.height=heights.reduce((sum,v)=>sum+v,0)+gap*(bands.length-1);
-   const ctx=output.getContext('2d',{willReadFrequently:true});
-   ctx.fillStyle='#fff';ctx.fillRect(0,0,output.width,output.height);
-   ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-   let y=0;
-   for(let i=0;i<bands.length;i++){
-     const band=bands[i],sx=Math.floor(source.width*left),sy=Math.floor(source.height*band.top);
-     const sw=Math.max(1,Math.floor(source.width*(right-left)));
-     const sh=Math.max(1,Math.floor(source.height*(band.bottom-band.top)));
-     ctx.drawImage(source,sx,sy,sw,sh,0,y,output.width,heights[i]);y+=heights[i]+gap;
-   }
-   // Contraste moderado preserva detalhes e fontes pequenas do documento.
-   const pixels=ctx.getImageData(0,0,output.width,output.height);
-   for(let i=0;i<pixels.data.length;i+=4){
-     const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
-     const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.35+128)));
-     pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
-   }
-   ctx.putImageData(pixels,0,0);return output;
+   return regions.map(region=>{
+     const sy=Math.max(0,Math.floor(source.height*region.top));
+     const sh=Math.max(1,Math.min(source.height-sy,Math.floor(source.height*(region.bottom-region.top))));
+     const crop=document.createElement('canvas');
+     crop.width=outputWidth;
+     crop.height=Math.max(1,Math.round(sh*scale));
+     const ctx=crop.getContext('2d',{willReadFrequently:true});
+     ctx.fillStyle='#fff';ctx.fillRect(0,0,crop.width,crop.height);
+     ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+     ctx.drawImage(source,0,sy,source.width,sh,0,0,crop.width,crop.height);
+     // Melhorar contraste sem binarização agressiva: letras pequenas e acentos
+     // são importantes para razão social, descrição e código da infração.
+     const pixels=ctx.getImageData(0,0,crop.width,crop.height);
+     for(let i=0;i<pixels.data.length;i+=4){
+       const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
+       const value=Math.max(0,Math.min(255,Math.round((gray-128)*1.25+128)));
+       pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
+     }
+     ctx.putImageData(pixels,0,0);
+     return {name:region.name,mode:region.mode,canvas:crop};
+   });
  };
  const recognizeFocusedPoints=async(sourceCanvas)=>{
    if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
@@ -561,15 +566,14 @@ pdfInput.addEventListener('change',async()=>{
          const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
          missing=addCandidate(secondText);
          if(currentFineType==='identificacao'&&missing.length){
-           let regionCanvas=null;
+           const targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            try{
-             regionCanvas=buildIdentificationRegionCanvas(sourceCanvas);
-             if(regionCanvas){
-               const regionText=await recognize(regionCanvas,'Tentativa 3: leitura ampliada dos campos DER…',11);
+             for(const region of targetCrops){
+               const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
                missing=addCandidate(regionText);
              }
            }finally{
-             if(regionCanvas){regionCanvas.width=0;regionCanvas.height=0;}
+             targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
            }
          }
          if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
@@ -636,20 +640,20 @@ pdfInput.addEventListener('change',async()=>{
      }
      if(currentFineType==='identificacao'&&missing.length){
        for(let p=1;p<=Math.min(pdf.numPages,3)&&missing.length;p++){
-         let sourceCanvas=null,regionCanvas=null;
+         let sourceCanvas=null,targetCrops=[];
          try{
            const page=await pdf.getPage(p);
            const viewport=page.getViewport({scale:3.6});
            sourceCanvas=document.createElement('canvas');
            sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
            await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
-           regionCanvas=buildIdentificationRegionCanvas(sourceCanvas);
-           if(regionCanvas){
-             const regionText=await recognize(regionCanvas,'Tentativa 4: leitura regional do PDF DER…',11);
+           targetCrops=buildIdentificationTargetCrops(sourceCanvas);
+           for(const region of targetCrops){
+             const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
              missing=addCandidate(regionText);
            }
          }finally{
-           if(regionCanvas){regionCanvas.width=0;regionCanvas.height=0;}
+           targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
            if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
          }
        }
@@ -962,6 +966,24 @@ function parseIdentificationFine(raw){
       }
     }
   }
+  if(!company){
+    const companyRows=rows.slice(0,Math.min(rows.length,55));
+    for(let i=0;i<companyRows.length&&!company;i++){
+      let candidate=String(companyRows[i]||'');
+      const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
+      if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
+      const suffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
+      if(!suffix)continue;
+      candidate=clean(candidate.slice(0,suffix.index)+' '+suffix[1])
+        .replace(/^(?:PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA|DO\s+VE[IÍ]CULO|NA\s+DATA\s+DA)\s*/i,'')
+        .trim();
+      const letters=candidate.replace(/[^A-ZÀ-Ü]/gi,'');
+      const words=candidate.split(/\s+/).filter(Boolean);
+      if(words.length>=3&&letters.length>=9&&!/^(?:PESSOA|PROPRIET[ÁA]RIA|VE[IÍ]CULO|INFRA[CÇ][AÃ]O)$/i.test(candidate)){
+        company=normalizeCompanyName(candidate);
+      }
+    }
+  }
   company=normalizeCompanyName(company);
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
@@ -1143,6 +1165,18 @@ function parseIdentificationFine(raw){
     const candidates=[...originRegion.matchAll(/\b(\d{4})\b/g)].map(m=>m[1]);
     originInfractionCode=candidates.find(value=>!['9503','2025','2026'].includes(value))||'';
   }
+  if(!originInfractionCode){
+    const routeHeaderIndex=rows.findIndex(row=>/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i.test(row));
+    const routeCodeRegion=routeHeaderIndex>=0
+      ?rows.slice(Math.max(0,routeHeaderIndex-6),routeHeaderIndex).join(' ')
+      :flat.slice(0,Math.min(flat.length,1800));
+    const normalizedRouteCode=routeCodeRegion.toLocaleUpperCase('pt-BR');
+    if(/\b5\s*7\s*0\s*3\b/.test(normalizedRouteCode)
+      ||/\b5\s*7\s*[O0]\s*3\b/.test(normalizedRouteCode)
+      ||/\bS\s*7\s*0\s*3\b/.test(normalizedRouteCode)){
+      originInfractionCode='5703';
+    }
+  }
   if(!originInfractionCode&&/\b5002\b/.test(flat)&&/\b5703(?:[-/]\s*0)?\b/.test(flat)){
     originInfractionCode='5703';
   }
@@ -1232,12 +1266,21 @@ function parseIdentificationFine(raw){
  // Histórico multa: o título é "Descrição da Infração"; gravar somente o conteúdo abaixo dele.
  let history=extractInfractionDescription(rows,flat);
  history=history.replace(/^Muita(?=\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa');
-  const nicDescription=flat.match(/M(?:ul|ui)ta\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator(?:\s*,?\s*imposta\s+a\s+pessoas?\s+jur[ií]dica)?/i);
- if(nicDescription){
-   history=clean(nicDescription[0]).replace(/^Muita/i,'Multa')
-     .replace(/\bPessoas?\s+jur[ií]dica\b/i,'pessoa jurídica').trim();
-   if(history&&!/[.!?]$/.test(history))history+='.';
- }
+  const descriptionHeader=rows.findIndex(row=>/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i.test(row));
+  const descriptionRegion=descriptionHeader>=0
+    ?rows.slice(descriptionHeader,Math.min(rows.length,descriptionHeader+5)).join(' ')
+    :flat;
+  const nicSource=descriptionRegion+' '+flat;
+  const nicDescription=nicSource.match(/\bM(?:ul|ui|a)ta\s*,?\s*por\s+n[aã]o\s+([\wÀ-ÿ]{4,22})\s+do\s+condutor\s+infrator[\s\S]{0,100}?pessoas?\s+jur[ií]dica\b/i);
+  if(nicDescription){
+    history=clean(nicDescription[0])
+      .replace(/^M(?:uita|ata)/i,'Multa')
+      .replace(/\b(?:Mentifica[cç][aã]o|Menti?fica[cç][aã]o|iemlca[aã]o)\b/i,'identificação')
+      .replace(/\bPessoas?\s+jur[ií]dica\b/i,'pessoa jurídica')
+      .replace(/\bimposta\s+a\s+pessoa\b/i,'imposta à pessoa')
+      .trim();
+    if(history&&!/[.!?]$/.test(history))history+='.';
+  }
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
