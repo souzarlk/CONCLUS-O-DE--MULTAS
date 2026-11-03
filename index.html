@@ -628,114 +628,84 @@ function extractRoadLocation(sourceRows){
   const rows=(Array.isArray(sourceRows)?sourceRows:[])
     .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
     .filter(Boolean);
-  const headerIndex=rows.findIndex(row=>/Local\s*\/\s*Rodovia/i.test(row));
-  if(headerIndex<0)return null;
-
-  const states='AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO';
   const cleanText=value=>String(value||'').replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
-  const sectionStopRe=/\b(?:AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA|LIMITE\s+REGULAMENTADO|MEDI[CÇ][AÃ]O\s+REALIZADA|VALOR\s+CONSIDERADO|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|C[ÓO]DIGO\s+RENAINF|DT\.?\s*LIM\.?\s*IND\.?\s*CONDUTOR|MOTIVO\s+DO\s+N[AÃ]O\s+ACATAMENTO|INFORMA[CÇ][AÃ]O\s+IMPORTANTE|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O)\b/i;
-
-  const trimCity=value=>{
+  // Alguns scans leem "Rodovia" como "Restos", "Rodos" ou apenas "Rodovi".
+  const headerRe=/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i;
+  const headerIndex=rows.findIndex(row=>headerRe.test(row));
+  const highwayRe=/\b((?:AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO|BR)\s*[-.]?\s*\d{1,4})\b/i;
+  const stopRe=/\b(?:UF|C[ÓO]DIGO|DATA|HORA|ALINHAMENTO|AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|C[ÓO]DIGO\s+RENAINF|INFORMA[CÇ][AÃ]O\s+IMPORTANTE|MOTIVO\s+DO\s+N[AÃ]O\s+ACATAMENTO)\b/i;
+  const canonicalCity=value=>{
     let city=cleanText(value).toLocaleUpperCase('pt-BR');
-    // Encerrar no primeiro marcador de coluna posterior ao município.
-    const stateCodeRe=new RegExp('\\s+(?:'+states+')\\s+\\d{3,6}(?:\\s|$)','i');
-    const stateCode=stateCodeRe.exec(city);
-    if(stateCode)city=city.slice(0,stateCode.index);
-    const date=datePatternFallback(city);
-    if(date>=0)city=city.slice(0,date);
-    const clock=city.search(/\b\d{1,2}:\d{2}\b/);
-    if(clock>=0)city=city.slice(0,clock);
-    const section=sectionStopRe.exec(city);
-    if(section)city=city.slice(0,section.index);
-
-    // Descartar artefatos típicos do OCR que aparecem depois do nome da cidade.
-    // Mantém palavras portuguesas e conectores de nomes compostos (ex.: SÃO JOÃO DA BOA VISTA).
-    const tokens=cleanText(city).split(/\s+/);
+    const stop=stopRe.exec(city);
+    if(stop)city=city.slice(0,stop.index);
+    city=city.replace(/\bQUBATAO\b/g,'CUBATÃO')
+      .replace(/\bCUBATAO\b/g,'CUBATÃO')
+      .replace(/\bGUARUJA\b/g,'GUARUJÁ')
+      .replace(/\bMONGAGUA\b/g,'MONGAGUÁ')
+      .replace(/\bITANHAEM\b/g,'ITANHAÉM')
+      .replace(/\bPERUIBE\b/g,'PERUÍBE')
+      .replace(/\bSAO VICENTE\b/g,'SÃO VICENTE')
+      .replace(/\bSAO PAULO\b/g,'SÃO PAULO');
     const kept=[];
-    for(const token of tokens){
+    for(const token of city.split(/\s+/).filter(Boolean)){
       const letters=token.replace(/[^A-ZÀ-Ü]/g,'');
       if(!letters)break;
       const vowels=(letters.match(/[AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]/g)||[]).length;
-      const vowelRatio=vowels/letters.length;
-      const maxConsonantRun=/[^AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]{4,}/.test(letters);
-      // Sequências como "SG" em tokens isolados geralmente são ruído de coluna do OCR,
-      // não parte de um topônimo; preservar combinações usuais de nomes portugueses.
-      const unlikelyPortugueseCluster=/(?:SG|ZS|ZJ|JQ|QJ|KP|PK)/.test(letters);
-      if(vowelRatio<0.28||maxConsonantRun||unlikelyPortugueseCluster)break;
+      if(vowels/letters.length<.28||/[^AEIOUÁÀÂÃÉÊÍÓÔÕÚÜ]{4,}/.test(letters))break;
       kept.push(token);
       if(kept.length>=6)break;
     }
     return cleanText(kept.join(' '));
   };
-  const datePatternFallback=value=>{
-    const m=String(value||'').search(/\b\d{2}[/.]\d{2}[/.]\d{4}\b/);
-    return m;
-  };
-
-  const parseWindow=raw=>{
-    let value=cleanText(raw).toLocaleUpperCase('pt-BR');
-    const header=/Local\s*\/\s*Rodovia/i.exec(value);
-    if(header)value=value.slice(header.index+header[0].length);
-    // Cortar imediatamente quando começar outra tabela ou bloco da notificação.
-    const section=sectionStopRe.exec(value);
-    if(section)value=value.slice(0,section.index);
-    // Cabeçalhos das colunas não pertencem aos valores.
-    value=value.replace(/\b(?:KM|METROS|SENTIDO|MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O|UF|C[ÓO]DIGO|DATA|HORA|ALINHAMENTO)\b/gi,' ');
-    value=cleanText(value);
-    if(!value)return null;
-
-    // Encerrar após a coluna do município: UF + código, data ou horário.
-    const stateCodeRe=new RegExp('\\s+(?:'+states+')\\s+\\d{3,6}(?:\\s|$)','i');
-    const stateCode=stateCodeRe.exec(value);
-    if(stateCode)value=value.slice(0,stateCode.index);
-    const date=datePatternFallback(value);
-    if(date>=0)value=value.slice(0,date);
-    const clock=value.search(/\b\d{1,2}:\d{2}\b/);
-    if(clock>=0)value=value.slice(0,clock);
-    const nextSection=sectionStopRe.exec(value);
-    if(nextSection)value=value.slice(0,nextSection.index);
-    value=cleanText(value);
-
-    // Layout da tabela: Rodovia | KM | Metros | Sentido | Município.
-    let m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
-    let road='',km='',city='';
-    if(m){
-      road=cleanText(m[1].replace(/\s+KM$/i,''));
-      km=cleanText(m[2]);
-      city=trimCity(m[5]);
-    }else{
-      // Variações de layout sem sentido ou sem coluna de metros.
-      m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(.+)$/i);
-      if(m){
-        road=cleanText(m[1].replace(/\s+KM$/i,''));
-        km=cleanText(m[2]);
-        city=trimCity(m[4]);
-      }else{
-        m=value.match(/^(.+?)\s+(?:KM\s*)?(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
-        if(m){
-          road=cleanText(m[1].replace(/\s+KM$/i,''));
-          km=cleanText(m[2]);
-          city=trimCity(m[4]);
-        }
+  const globalRoadIndex=rows.findIndex(row=>highwayRe.test(row));
+  if(headerIndex<0&&globalRoadIndex<0)return null;
+  const startIndex=headerIndex>=0?headerIndex:globalRoadIndex;
+  const region=rows.slice(startIndex,Math.min(rows.length,startIndex+22));
+  const regionText=region.join(' ');
+  const roadIndex=region.findIndex(row=>highwayRe.test(row));
+  if(roadIndex<0)return null;
+  const roadMatch=highwayRe.exec(region[roadIndex]);
+  if(!roadMatch)return null;
+  const road=cleanText(roadMatch[1]).toLocaleUpperCase('pt-BR').replace(/\s+/g,' ');
+  const afterRoadRows=region.slice(roadIndex);
+  const afterRoad=afterRoadRows.join(' ').slice(roadMatch.index+roadMatch[0].length);
+  let kmMatch=afterRoad.match(/\bKM\s*[:.-]?\s*(\d{1,5})\b/i);
+  if(!kmMatch){
+    // Em PDF/OCR por colunas, o KM vem na primeira célula numérica após a rodovia;
+    // a segunda costuma ser Metros e é ignorada.
+    for(const row of region.slice(roadIndex+1,roadIndex+6)){
+      const match=row.match(/^\s*(?:KM\s*)?(\d{1,5})\s*$/i)||row.match(/\bKM\s*(\d{1,5})\b/i);
+      if(match){kmMatch=match;break;}
+    }
+    if(!kmMatch){
+      const token=afterRoad.match(/\b(\d{1,5})\b/);
+      if(token)kmMatch=token;
+    }
+  }
+  const km=kmMatch?kmMatch[1]:'';
+  const municipalityHeader=region.findIndex((row,index)=>index>=roadIndex&&/Munic[ií]pio/i.test(row));
+  let municipality='';
+  if(municipalityHeader>=0){
+    const candidates=[];
+    const headerRow=region[municipalityHeader];
+    const label=/Munic[ií]pio(?:\s+da(?:\s+Infra[cç][aã]o)?)?/i.exec(headerRow);
+    if(label)candidates.push(headerRow.slice(label.index+label[0].length));
+    candidates.push(...region.slice(municipalityHeader+1,Math.min(region.length,municipalityHeader+7)));
+    for(const candidate of candidates){
+      const cleaned=cleanText(candidate).replace(/\b\d{2}[/.]\d{2}[/.]\d{4}\b[\s\S]*$/,'');
+      const city=canonicalCity(cleaned);
+      if(city.length>=3&&/[A-ZÀ-Ü]{3}/i.test(city)&&!stopRe.test(city)&&!/^\d/.test(city)){
+        municipality=city;break;
       }
     }
-    road=cleanText(road);
-    km=km.replace(/^KM\s*/i,'').trim();
-    if(!road||!/^\d{1,5}$/.test(km)||!city||city.length<3)return null;
-    if(/^(?:LOCAL|RODOVIA|KM|METROS|SENTIDO|MUNIC[IÍ]PIO|UF|C[ÓO]DIGO|DATA|HORA)$/i.test(road))return null;
-    if(/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[IÍ]PIO)$/i.test(city))return null;
-    return {road,km,municipality:city};
-  };
-
-  // Usar somente a pequena região logo abaixo do título. Não anexar o restante da página.
-  for(let i=headerIndex;i<Math.min(rows.length,headerIndex+5);i++){
-    const segment=rows.slice(i,Math.min(rows.length,i+4));
-    const stopIndex=segment.findIndex((row,index)=>index>0&&sectionStopRe.test(row));
-    const bounded=stopIndex>=0?segment.slice(0,stopIndex):segment;
-    const parsed=parseWindow(bounded.join(' '));
-    if(parsed)return parsed;
   }
-  return null;
+  if(!municipality){
+    const known=regionText.match(/\b(CUBAT[AÃ]O|QUBATAO|SANTOS|GUARUJ[AÁ]|S[AÃ]O\s+VICENTE|PRAIA\s+GRANDE|BERTIOGA|MONGAGU[AÁ]|ITANHA[EÉ]M|PERU[IÍ]BE)\b/i);
+    if(known)municipality=canonicalCity(known[1]);
+  }
+  if(!road||!/^\d{1,5}$/.test(km)||!municipality||municipality.length<3)return null;
+  if(/^(?:LOCAL|RODOVIA|KM|METROS|SENTIDO|MUNIC[IÍ]PIO|UF|C[ÓO]DIGO|DATA|HORA)$/i.test(municipality))return null;
+  return {road,km,municipality};
 }
 
 function extractInfractionDescription(sourceRows,sourceText=''){
