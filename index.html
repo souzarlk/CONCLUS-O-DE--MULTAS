@@ -975,6 +975,8 @@ function extractAnchoredHistory(sourceRows, sourceText=''){
    const longNumber=/\s+\d{5,}\b/.exec(v);
    if(longNumber)v=v.slice(0,longNumber.index);
    v=v.replace(/(?:\s+\d{5,})+\s*$/,'')
+      // O OCR pode anexar siglas/fragmentos da coluna lateral após o texto da penalidade.
+      .replace(/\s+pj\s+[A-Z]{1,2}\s*$/i,'')
       .replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'')
       .replace(/\s+/g,' ').trim();
    if(v.length<10||(v.match(/[A-ZÀ-Ü]/gi)||[]).length<8)return '';
