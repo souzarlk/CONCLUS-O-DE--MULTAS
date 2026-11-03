@@ -634,6 +634,26 @@ pdfInput.addEventListener('change',async()=>{
        const thirdOcrText=await renderAndRecognize(false,11);
        missing=addCandidate(thirdOcrText);
      }
+     if(currentFineType==='identificacao'&&missing.length){
+       for(let p=1;p<=Math.min(pdf.numPages,3)&&missing.length;p++){
+         let sourceCanvas=null,regionCanvas=null;
+         try{
+           const page=await pdf.getPage(p);
+           const viewport=page.getViewport({scale:3.6});
+           sourceCanvas=document.createElement('canvas');
+           sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
+           await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
+           regionCanvas=buildIdentificationRegionCanvas(sourceCanvas);
+           if(regionCanvas){
+             const regionText=await recognize(regionCanvas,'Tentativa 4: leitura regional do PDF DER…',11);
+             missing=addCandidate(regionText);
+           }
+         }finally{
+           if(regionCanvas){regionCanvas.width=0;regionCanvas.height=0;}
+           if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
+         }
+       }
+     }
      if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
        parseStatus.className='parse-status';
        parseStatus.textContent='Os outros campos foram lidos. Fazendo uma leitura ampliada do campo “Pontos multa”…';
@@ -1209,8 +1229,8 @@ function parseIdentificationFine(raw){
  // Histórico multa: o título é "Descrição da Infração"; gravar somente o conteúdo abaixo dele.
  let history=extractInfractionDescription(rows,flat);
  history=history.replace(/^Muita(?=\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa');
- const nicDescription=flat.match(/M(?:ul|ui)ta\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator[\s\S]{0,110}?(?:pessoa\s+jur[ií]dica)?/i);
- if(nicDescription)history=clean(nicDescription[0]).replace(/^Muita/i,'Multa').replace(/\s+(?:502423|\d{8,})\b[\s\S]*$/i,'').trim();
+  const nicDescription=flat.match(/M(?:ul|ui)ta\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator(?:\s*,?\s*imposta\s+a\s+pessoas?\s+jur[ií]dica)?/i);
+ if(nicDescription)history=clean(nicDescription[0]).replace(/^Muita/i,'Multa').trim();
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
