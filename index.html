@@ -42,12 +42,64 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
 @keyframes appear{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}@media(max-width:650px){.screen{padding:25px 13px}.brand{margin-bottom:16px}.brand img{width:160px}.card{border-radius:19px;padding:25px 17px}.intro{font-size:13px;margin-bottom:24px}.types{grid-template-columns:1fr;gap:10px}.type{min-height:auto;display:grid;grid-template-columns:42px 1fr;column-gap:13px;align-items:center;padding:14px}.type-icon{grid-row:span 2;margin:0}.type h2{margin:0 0 8px}.status{align-self:start}.section-title{align-items:flex-start;flex-direction:column;gap:5px}.footnote{align-items:flex-start;line-height:1.5}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 
 
+
+/* Camada de fundo única: permanece fixa e consistente na seleção e no formulário. */
+html{min-height:100%;background:#08090c}
+body{min-height:100vh;min-height:100svh;background:#08090c}
+.ambient-bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;isolation:isolate;background:radial-gradient(ellipse at 12% 12%,rgba(227,6,19,.13),transparent 38%),radial-gradient(ellipse at 90% 84%,rgba(125,0,8,.12),transparent 36%),#08090c}
+.ambient-bg .matrix{position:absolute;inset:0;display:block;width:100%;height:100%;z-index:0;opacity:.34;mix-blend-mode:screen}
+.ambient-bg .glow{z-index:1;filter:blur(105px);opacity:.16}
+.ambient-bg .g1{background:#e30613}
+.ambient-bg .g2{background:#8d0009}
+.ambient-bg .grid{z-index:2;opacity:.10;background-size:48px 48px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.85),transparent 94%)}
+.screen{position:relative;z-index:1;min-height:100vh;min-height:100svh;overflow:visible;background:transparent}
+.screen>.wrap{position:relative;z-index:1}
+body[data-theme="light"]{background:#f2f3f6}
+body[data-theme="light"] .ambient-bg{background:radial-gradient(ellipse at 12% 12%,rgba(227,6,19,.07),transparent 38%),linear-gradient(135deg,#f6f7f9,#eceef2)}
+body[data-theme="light"] .ambient-bg .matrix{opacity:.18;mix-blend-mode:multiply}
+body[data-theme="light"] .ambient-bg .grid{opacity:.055;background-image:linear-gradient(rgba(20,20,25,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(20,20,25,.08) 1px,transparent 1px)}
+body[data-theme="light"] .screen{background:transparent}
+
+/* Cartões com estado de disponibilidade claro e ação de acesso explícita. */
+.type.feature-type{min-height:202px;display:flex;flex-direction:column;align-items:stretch;justify-content:space-between;gap:20px;padding:20px}
+.type.available{cursor:default}
+.type.available:hover{transform:translateY(-3px)}
+.type-heading{align-items:flex-start}
+.type-heading h2{letter-spacing:.15px}
+.type-footer{display:flex;flex-direction:column;align-items:flex-start;gap:13px;margin-top:auto}
+.status{color:#2fd18a}
+.status:before{background:#2fd18a;box-shadow:0 0 0 3px rgba(47,209,138,.12),0 0 11px rgba(47,209,138,.45)}
+.disabled .status{color:#a0a3ad}
+.disabled .status:before{background:#858995;box-shadow:none}
+.access-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:38px;padding:9px 14px;border:1px solid rgba(227,6,19,.48);border-radius:10px;background:linear-gradient(135deg,#e30613,#b8000b);color:#fff;font-size:12px;font-weight:800;letter-spacing:.2px;cursor:pointer;box-shadow:0 7px 18px rgba(227,6,19,.18);transition:transform .18s,box-shadow .18s,filter .18s}
+.access-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s}
+.access-btn:hover{transform:translateY(-2px);filter:brightness(1.08);box-shadow:0 10px 24px rgba(227,6,19,.28)}
+.access-btn:hover svg{transform:translateX(3px)}
+.access-btn:focus-visible{outline:2px solid #ff737b;outline-offset:3px}
+body[data-theme="light"] .type.available .status{color:#168c60}
+body[data-theme="light"] .type.available .status:before{background:#1ca66e;box-shadow:0 0 0 3px rgba(28,166,110,.12),0 0 9px rgba(28,166,110,.25)}
+body[data-theme="light"] .access-btn{color:#fff}
+@media(max-width:650px){
+ .type.feature-type{min-height:0;padding:16px;gap:15px}
+ .type-footer{gap:11px}
+ .access-btn{min-height:36px}
+}
+@media(prefers-reduced-motion:reduce){
+ .ambient-bg .matrix{opacity:.12}
+ .access-btn,.access-btn svg,.type.available{transition:none}
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}</script>
 </head>
 <body>
+<div class="ambient-bg" aria-hidden="true">
+  <canvas class="matrix" id="matrix"></canvas>
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+  <div class="grid"></div>
+</div>
 <main class="screen">
-<canvas class="matrix" id="matrix" aria-hidden="true"></canvas><div class="glow g1"></div><div class="glow g2"></div><div class="grid"></div>
 <div class="wrap">
 <div class="brand"><img src="https://souzarlk.github.io/Cerificados-Costalog/assets/logo-costalog.svg" alt="COSTALOG" onerror="this.style.display='none'"></div>
 <section class="card" aria-labelledby="mainTitle">
@@ -57,26 +109,33 @@ body[data-theme="light"] .toast{color:#a9000a;background:#fff0f1}
 <p class="eyebrow">FERRAMENTA DE USO FROTA</p>
 <h1 id="mainTitle">Conclusão de <span>Multas</span></h1>
 <p class="intro">Selecione o tipo de multa para acessar a ferramenta de conclusão correspondente. Este ambiente reúne os procedimentos em um único lugar.</p>
-<div class="section-title"><span>Selecione o tipo de multa</span><small>1 ferramenta disponível de 3 planejadas</small></div>
+<div class="section-title"><span>Selecione o tipo de multa</span><small>2 ferramentas disponíveis de 3 planejadas</small></div>
 <div class="types">
-<button class="type available feature-type" id="openPenalty" type="button" aria-label="Abrir Não Identificação com Boleto — Notificação de Imposição da Penalidade de Multa por Não Indicação do Condutor">
-<div class="type-heading">
-<span class="type-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
-<h2>NÃO IDENTIFICAÇÃO COM BOLETO</h2>
-</div>
-<span class="status">Disponível</span>
-</button>
-<button class="type available feature-type" id="openIdentification" type="button" aria-label="Abrir Apenas Identificação">
-<div class="type-heading">
-<span class="type-icon"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
-<h2>APENAS IDENTIFICAÇÃO</h2>
-</div>
-<span class="status">Disponível</span>
-</button>
-<button class="type disabled" type="button" disabled aria-label="Tipo de multa 3, em breve">
-<span class="type-icon"><svg viewBox="0 0 24 24"><path d="M12 3 3 7v5c0 5 3.8 8 9 9 5.2-1 9-4 9-9V7z"/><path d="M9 12h6"/></svg></span>
-<h2>Tipo de multa 3</h2><span class="status">Em breve</span>
-</button>
+<article class="type available feature-type" aria-labelledby="penaltyTypeTitle">
+  <div class="type-heading">
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
+    <h2 id="penaltyTypeTitle">NÃO IDENTIFICAÇÃO COM BOLETO</h2>
+  </div>
+  <div class="type-footer">
+    <span class="status">Disponível</span>
+    <button class="access-btn" id="openPenalty" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</article>
+<article class="type available feature-type" aria-labelledby="identificationTypeTitle">
+  <div class="type-heading">
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
+    <h2 id="identificationTypeTitle">APENAS IDENTIFICAÇÃO</h2>
+  </div>
+  <div class="type-footer">
+    <span class="status">Disponível</span>
+    <button class="access-btn" id="openIdentification" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</article>
+<article class="type disabled" aria-label="Tipo de multa 3, em breve" aria-disabled="true">
+  <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v5c0 5 3.8 8 9 9 5.2-1 9-4 9-9V7z"/><path d="M9 12h6"/></svg></span>
+  <h2>Tipo de multa 3</h2>
+  <span class="status">Em breve</span>
+</article>
 </div>
 <div class="toast" id="toast" role="status"></div>
 </div>
@@ -1705,7 +1764,75 @@ document.querySelectorAll('#fieldsGrid label').forEach(label=>{
  actions.append(copyBtn,editBtn,status);label.appendChild(actions);
 });
 document.getElementById('copyData').addEventListener('click',()=>{document.getElementById('copyStatus').textContent='Integração com o DSS ainda será configurada.'});
-const c=document.getElementById('matrix'),ctx=c.getContext('2d');let w,h,columns,drops,fontSize=14;function resize(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;columns=Math.ceil(w/fontSize);drops=Array(columns).fill(1)}function draw(){ctx.fillStyle=body.dataset.theme==='light'?'rgba(255,255,255,0.09)':'rgba(9,10,13,0.09)';ctx.fillRect(0,0,w,h);ctx.fillStyle='#e30613';ctx.font=fontSize+'px monospace';for(let i=0;i<drops.length;i++){const t=Math.random()>.5?'01'[Math.floor(Math.random()*2)]:String.fromCharCode(0x30A0+Math.random()*96);ctx.fillText(t,i*fontSize,drops[i]*fontSize);if(drops[i]*fontSize>h&&Math.random()>.978)drops[i]=0;drops[i]++}}resize();window.addEventListener('resize',resize);let timer=setInterval(draw,75);document.addEventListener('visibilitychange',()=>{if(document.hidden){clearInterval(timer)}else{timer=setInterval(draw,75)}});})();
+// Fundo Matrix único e compartilhado por todas as telas da ferramenta.
+const matrixCanvas=document.getElementById('matrix');
+if(matrixCanvas){
+ const matrixCtx=matrixCanvas.getContext('2d',{alpha:true});
+ if(matrixCtx){
+  const reducedMotion=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const fontSize=16,frameDelay=58;
+  let matrixWidth=1,matrixHeight=1,matrixDpr=1,matrixColumns=0,matrixDrops=[],matrixFrame=0,lastMatrixFrame=0;
+  const resizeMatrix=()=>{
+   matrixWidth=Math.max(1,window.innerWidth);
+   matrixHeight=Math.max(1,window.innerHeight);
+   matrixDpr=Math.min(window.devicePixelRatio||1,1.5);
+   matrixCanvas.width=Math.round(matrixWidth*matrixDpr);
+   matrixCanvas.height=Math.round(matrixHeight*matrixDpr);
+   matrixCanvas.style.width='100%';
+   matrixCanvas.style.height='100%';
+   matrixCtx.setTransform(matrixDpr,0,0,matrixDpr,0,0);
+   matrixColumns=Math.ceil(matrixWidth/fontSize);
+   matrixDrops=Array.from({length:matrixColumns},()=>-Math.random()*24);
+   matrixCtx.clearRect(0,0,matrixWidth,matrixHeight);
+   if(reducedMotion)drawMatrixStatic();
+  };
+  const drawMatrixStatic=()=>{
+   matrixCtx.clearRect(0,0,matrixWidth,matrixHeight);
+   matrixCtx.font='600 12px ui-monospace,Consolas,monospace';
+   matrixCtx.textAlign='center';
+   matrixCtx.fillStyle=body.dataset.theme==='light'?'rgba(190,0,16,.10)':'rgba(255,55,67,.13)';
+   for(let col=0;col<matrixColumns;col+=3){
+    const y=(col*53)%Math.max(1,matrixHeight);
+    matrixCtx.fillText((col%2?'0':'1'),col*fontSize,y);
+   }
+  };
+  const drawMatrix=timestamp=>{
+   if(document.hidden)return;
+   matrixFrame=requestAnimationFrame(drawMatrix);
+   if(timestamp-lastMatrixFrame<frameDelay)return;
+   lastMatrixFrame=timestamp;
+   const light=body.dataset.theme==='light';
+   matrixCtx.fillStyle=light?'rgba(244,245,248,.16)':'rgba(7,8,11,.13)';
+   matrixCtx.fillRect(0,0,matrixWidth,matrixHeight);
+   matrixCtx.font='600 13px ui-monospace,SFMono-Regular,Consolas,monospace';
+   matrixCtx.textAlign='center';
+   matrixCtx.shadowBlur=5;
+   for(let col=0;col<matrixColumns;col++){
+    const y=matrixDrops[col]*fontSize;
+    const isHead=Math.random()>.965;
+    matrixCtx.fillStyle=isHead
+      ?(light?'rgba(180,0,14,.72)':'rgba(255,90,99,.92)')
+      :(light?'rgba(188,0,15,.30)':'rgba(227,6,19,.48)');
+    matrixCtx.shadowColor=light?'rgba(227,6,19,.15)':'rgba(227,6,19,.35)';
+    matrixCtx.fillText(Math.random()>.5?'0':'1',col*fontSize,y);
+    if(y>matrixHeight&&Math.random()>.978)matrixDrops[col]=-Math.random()*18;
+    else matrixDrops[col]+=Math.random()>.94?1.35:.78;
+   }
+   matrixCtx.shadowBlur=0;
+  };
+  const stopMatrix=()=>{if(matrixFrame)cancelAnimationFrame(matrixFrame);matrixFrame=0;};
+  const startMatrix=()=>{
+   stopMatrix();
+   if(reducedMotion){drawMatrixStatic();return;}
+   if(!document.hidden)matrixFrame=requestAnimationFrame(drawMatrix);
+  };
+  resizeMatrix();
+  window.addEventListener('resize',resizeMatrix,{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMatrix();else startMatrix();});
+  if(!reducedMotion)startMatrix();
+ }
+}
+})();
 </script>
 </body>
 </html>
