@@ -589,6 +589,65 @@ function extractRoadLocation(sourceRows){
   return null;
 }
 
+function extractInfractionDescription(sourceRows,sourceText=''){
+  const rows=(Array.isArray(sourceRows)?sourceRows:[])
+    .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
+    .filter(Boolean);
+  const labelRe=/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i;
+  const stopRe=/\b(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA|Artigo\s*\(CTB\)|Base\s+Legal|Desdob\.?|Pontua[cç][aã]o|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\))\b/i;
+  const cleanValue=value=>{
+    let candidate=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+    if(!candidate)return '';
+    // Se o OCR repetir o título junto com o valor, remover o título e manter o texto posterior.
+    const repeated=labelRe.exec(candidate);
+    if(repeated)candidate=candidate.slice(repeated.index+repeated[0].length);
+    const stop=stopRe.exec(candidate);
+    if(stop)candidate=candidate.slice(0,stop.index);
+    const numericTail=/\s+(?:\d{2,4}\s*[-/.]\s*\d{1,2}|\d{8,}|\d{2}[/.]\d{2}[/.]\d{4})\b/.exec(candidate);
+    if(numericTail)candidate=candidate.slice(0,numericTail.index);
+    candidate=candidate.replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'').replace(/\s+/g,' ').trim();
+    if(candidate.length<12)return '';
+    if(/^(?:Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|Equipamento|Instrumento|Observa[cç][oõ]es|C[oó]digo|Data|Hora|Artigo|Base\s+Legal|Pontua[cç][aã]o)\b/i.test(candidate))return '';
+    if(!/[A-Za-zÀ-ÿ]{3}/.test(candidate))return '';
+    return candidate;
+  };
+
+  // Priorizar a ocorrência pertencente à tipificação principal, antes da infração originária.
+  const mainStart=rows.findIndex(row=>/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\b/i.test(row)&&!/ORIGIN[AÁ]RIA/i.test(row));
+  const originStart=rows.findIndex((row,index)=>index>(mainStart>=0?mainStart:-1)&&/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i.test(row));
+  const eligibleIndexes=[];
+  for(let i=0;i<rows.length;i++){
+    if(!labelRe.test(rows[i]))continue;
+    if(mainStart>=0&&i<mainStart)continue;
+    if(originStart>=0&&i>=originStart)continue;
+    eligibleIndexes.push(i);
+  }
+  for(const index of eligibleIndexes){
+    const row=rows[index];
+    const label=labelRe.exec(row);
+    const sameLine=label?cleanValue(row.slice(label.index+label[0].length)):'';
+    if(sameLine)return sameLine;
+    for(let offset=1;offset<=3&&index+offset<rows.length;offset++){
+      const next=rows[index+offset];
+      if(stopRe.test(next)||/^(?:TIPIFICA[CÇ][AÃ]O|C[oó]digo\s+da\s+Infra[cç][aã]o|Equipamento|Instrumento|Observa[cç][oõ]es|Pontua[cç][aã]o)\b/i.test(next))break;
+      const value=cleanValue(next);
+      if(value)return value;
+    }
+  }
+
+  // Fallback para PDF.js/Tesseract que lineariza a tabela numa única linha.
+  const text=String(sourceText||rows.join(' ')).replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+  const flatLabel=labelRe.exec(text);
+  if(flatLabel){
+    const before=text.slice(Math.max(0,flatLabel.index-100),flatLabel.index);
+    if(!/ORIGIN[AÁ]RIA[\s\S]{0,45}$/i.test(before)){
+      const after=text.slice(flatLabel.index+flatLabel[0].length,flatLabel.index+flatLabel[0].length+320);
+      return cleanValue(after);
+    }
+  }
+  return '';
+}
+
 function parseIdentificationFine(raw){
  const rawText=String(raw||'');
  const flat=rawText.replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
@@ -953,59 +1012,8 @@ function parseIdentificationFine(raw){
  // For this notice, the deadline field is the labeled defense/driver-identification cutoff.
  let due=firstMatch(/\bData\s+Limite[\s\S]{0,180}?(\d{2}[/.]\d{2}[/.]\d{4})/i);
  due=due.replace(/\./g,'/');
- // Description of this notice is in the main "Descrição da Infração" field.
- let history='';
- const descriptionHeader=idxRow(/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i);
- if(descriptionHeader>=0){
-   for(let i=descriptionHeader;i<Math.min(rows.length,descriptionHeader+5);i++){
-     const row=rows[i];
-     const lab=/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i.exec(row);
-     let candidate=lab?row.slice(lab.index+lab[0].length):row;
-     candidate=clean(candidate.replace(/\b(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,''));
-     if(candidate.length<18&&i+1<rows.length)candidate=clean(rows[i+1]);
-     if(candidate.length>=18&&!/^(?:Equipamento|Instrumento|Observa[cç][oõ]es|C[oó]digo|Data|Hora|Pontua[cç][aã]o)\b/i.test(candidate)){
-       history=candidate;break;
-     }
-   }
- }
- if(!history){
-   const sectionStart=upper.search(/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O/i);
-   const sectionEnd=upper.search(/EQUIPAMENTO\s*\/?\s*INSTRUMENTO/);
-   const section=sectionStart>=0?flat.slice(sectionStart,sectionEnd>sectionStart?sectionEnd:sectionStart+1000):flat;
-   const m=section.match(/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o\s+(.{18,220}?)(?=\s+(?:Equipamento|Observa[cç][oõ]es|Pontua[cç][aã]o|C[oó]digo\s+RENAINF)\b|$)/i);
-   if(m)history=clean(m[1]);
- }
- // Recuperação por contexto: em algumas digitalizações o OCR perde o título “Descrição da Infração”,
- // mas mantém a descrição imediatamente após a linha numérica da tipificação principal.
- if(!history){
-   const mainCodeRow=idxRow(/C[oó]digo\s+da\s+Infra[cç][aã]o/i);
-   const observationsRow=mainCodeRow>=0
-     ?rows.findIndex((row,index)=>index>mainCodeRow&&/OUTRAS\s+OBSERV/i.test(row))
-     :idxRow(/OUTRAS\s+OBSERV/i);
-   // A linha da observação pode conter o final da descrição principal na mesma linha OCR.
-   const end=observationsRow>=0?observationsRow+1:Math.min(rows.length,(mainCodeRow>=0?mainCodeRow:0)+24);
-   const start=mainCodeRow>=0?mainCodeRow:Math.max(0,end-12);
-   const candidates=[];
-   for(let i=start;i<end;i++){
-     let candidate=clean(rows[i]);
-     candidate=candidate.replace(/\bOUTRAS\s+OBSERV[\s\S]*$/i,'').trim();
-     if(candidate.length<18)continue;
-     if(/^(?:Código\s+da\s+Infração|Desdobramento|Artigo\s*\(CTB\)|Pontuação|Código\s+RENAINF|Data\s+da\s+Expedição|Valor\s*\(R\$\))/i.test(candidate))continue;
-     if(/(?:condutor|infrator|identifica[cç][aã]o|jur[ií]dica)/i.test(candidate)
-       && !/Multa\s+NIC\s+originada/i.test(candidate)
-       && !/^(?:Número\s+de|Data\s+da|Código\s+RENAINF|Equipamento|Medição|Observações)/i.test(candidate)){
-       candidate=candidate.replace(/^(?:dita|ulta)\s*,\s*(?=por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa, ');
-       candidate=candidate.replace(/^ulta\s*,/i,'Multa,');
-       candidate=candidate.replace(/^[^A-Za-zÀ-ÿ]*(?:[|!])?\s*/,'');
-       candidate=candidate.replace(/\s+(?:É\s+)?OUTRAS\s+OBSERV[\s\S]*$/i,'').replace(/\s+(?:É|E)\s*$/i,'').trim();
-       candidates.push(candidate);
-     }
-   }
-   if(candidates.length){
-     candidates.sort((a,b)=>b.length-a.length);
-     history=clean(candidates[0]);
-   }
- }
+ // Histórico multa: o título é "Descrição da Infração"; gravar somente o conteúdo abaixo dele.
+ let history=extractInfractionDescription(rows,flat);
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
@@ -1404,7 +1412,7 @@ function parsePenaltyPdf(raw){
     municipality=routeLocation.municipality;
   }
   // Histórico: ler a linha de valores abaixo de "Penalidade aplicada", ignorando o título da seção e o rodapé.
- let penalty='';
+ let penalty=extractInfractionDescription(sourceRows,text);
  const penaltyHeaderRows=[];
  for(let i=0;i<sourceRows.length;i++){
    if(/\bPenalidade\s+Aplicada\b/i.test(sourceRows[i])&&!/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i.test(sourceRows[i])&&!/que\s+a\s+penalidade\s+aplicada/i.test(sourceRows[i]))penaltyHeaderRows.push(i);
