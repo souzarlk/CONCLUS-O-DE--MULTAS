@@ -347,13 +347,15 @@ pdfInput.addEventListener('change',async()=>{
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
  const restoreSnapshot=snapshot=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value=snapshot[id]||'';});
  const normalizeInfractionCode=value=>{
-   const original=String(value||'').trim();
+   const original=String(value||'').trim().replace(/[–—−]/g,'-');
    const digits=original.replace(/\D/g,'');
-   // O OCR pode juntar o dígito 6 da borda/coluna anterior ao código de 4 dígitos
-   // (ex.: 65002). Neste modelo, o código principal segue o formato de quatro dígitos.
-   if(/^\d{4}$/.test(digits))return digits;
-   if(/^6\d{4}$/.test(digits))return digits.slice(1);
-   if(/^6\s+\d{4}$/.test(original))return digits.slice(1);
+   // Se a borda da célula colar um "6" ao código real, retirar somente esse prefixo conhecido.
+   const codeDigits=/^6\d{4}$/.test(digits)?digits.slice(1):digits;
+   if(/^\d{4}$/.test(codeDigits))return codeDigits.slice(0,3)+'-'+codeDigits.slice(3);
+   const formatted=original.match(/^\s*(\d{3})\s*-\s*(\d)\s*$/);
+   if(formatted)return formatted[1]+'-'+formatted[2];
+   const spaced=original.match(/^\s*(\d{3})\s+(\d)\s*$/);
+   if(spaced)return spaced[1]+'-'+spaced[2];
    return original;
  };
  const fieldUsable=(id,value)=>{
@@ -362,6 +364,7 @@ pdfInput.addEventListener('change',async()=>{
      const compact=v.toUpperCase().replace(/\s+/g,'');
      return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
    }
+   if(id==='codInfracao')return /^\d{3}-\d$/.test(v);
    if(currentFineType==='identificacao'&&id==='empresa'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
      return v.split(/\s+/).filter(Boolean).length>=3
@@ -371,10 +374,11 @@ pdfInput.addEventListener('change',async()=>{
    if(currentFineType==='identificacao'&&id==='pontosMulta'){
      return /^\d{1,2}$/.test(v)&&Number(v)>=0&&Number(v)<=30;
    }
-   if(currentFineType==='identificacao'&&id==='historicoMulta'){
+   if(id==='historicoMulta'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
      return v.length>=12&&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=10
-       &&!/\b(?:DESCRICAO DA INFRACAO|PENALIDADE APLICADA|IDENTIFICACAO DO AGENTE|CODIGO RENAINF|BASE LEGAL)\b/.test(normalized);
+       &&!/\b(?:DESCRICAO DA INFRACAO|PENALIDADE APLICADA|IDENTIFICACAO DO AGENTE|CODIGO RENAINF|BASE LEGAL|DAF|VOLVO|SCANIA|IVECO|TRATOR|TRAC)\b/.test(normalized)
+       &&!/^[A-Z0-9.-]+\/[A-Z0-9.-]+(?:\s+[A-Z0-9.-]+){0,5}$/i.test(v);
    }
    if(id==='fornecedor'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -488,27 +492,32 @@ pdfInput.addEventListener('change',async()=>{
    const regions=[
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
-     {name:'Histórico da multa',top:.32,bottom:.455,mode:6},
-     {name:'Histórico da multa - alternativa',top:.32,bottom:.455,mode:11},
-     {name:'Código da infração',top:.29,bottom:.355,mode:11},
+     // Célula isolada: "Código da infração" e seu número logo abaixo.
+     {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
+     {name:'Código da infração - alternativa',left:.05,right:.46,top:.30,bottom:.37,mode:11},
+     // Célula isolada: descrição/histórico abaixo do título, antes da tabela do veículo.
+     {name:'Histórico da multa - célula',left:.05,right:.95,top:.345,bottom:.40,mode:6},
+     {name:'Histórico da multa - alternativa',left:.05,right:.95,top:.345,bottom:.40,mode:11},
      {name:'Pontos multa',top:.40,bottom:.48,mode:6},
      {name:'Pontos multa - alternativa',top:.40,bottom:.48,mode:11},
      {name:'Penalidade aplicada',top:.55,bottom:.76,mode:6},
      {name:'Penalidade aplicada - alternativa',top:.55,bottom:.76,mode:11}
    ];
-   const left=0,right=1;
    const scale=Math.min(2.2,Math.max(1.5,3200/source.width));
-   const outputWidth=Math.max(1,Math.round(source.width*(right-left)*scale));
    return regions.map(region=>{
+     const left=Number.isFinite(region.left)?region.left:0;
+     const right=Number.isFinite(region.right)?region.right:1;
+     const sx=Math.max(0,Math.floor(source.width*left));
+     const sw=Math.max(1,Math.min(source.width-sx,Math.floor(source.width*(right-left))));
      const sy=Math.max(0,Math.floor(source.height*region.top));
      const sh=Math.max(1,Math.min(source.height-sy,Math.floor(source.height*(region.bottom-region.top))));
      const crop=document.createElement('canvas');
-     crop.width=outputWidth;
+     crop.width=Math.max(1,Math.round(sw*scale));
      crop.height=Math.max(1,Math.round(sh*scale));
      const ctx=crop.getContext('2d',{willReadFrequently:true});
      ctx.fillStyle='#fff';ctx.fillRect(0,0,crop.width,crop.height);
      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-     ctx.drawImage(source,0,sy,source.width,sh,0,0,crop.width,crop.height);
+     ctx.drawImage(source,sx,sy,sw,sh,0,0,crop.width,crop.height);
      // Melhorar contraste sem binarização agressiva: letras pequenas e acentos
      // são importantes para razão social, descrição e código da infração.
      const pixels=ctx.getImageData(0,0,crop.width,crop.height);
@@ -945,6 +954,166 @@ function normalizeFineHistory(value){
  return text;
 }
 
+
+function extractAnchoredHistory(sourceRows, sourceText=''){
+ const rows=(Array.isArray(sourceRows)?sourceRows:[])
+   .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
+   .filter(Boolean);
+ const mainTitleRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\b/i;
+ const originTitleRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i;
+ const penaltyTitleRe=/\bPenalidade\s+Aplicada\b/i;
+ const descriptionTitleRe=/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i;
+ const mainStart=rows.findIndex(row=>mainTitleRe.test(row)&&!originTitleRe.test(row));
+ const originStart=rows.findIndex((row,index)=>index>(mainStart>=0?mainStart:-1)&&originTitleRe.test(row));
+ const mainEnd=originStart>=0?originStart:rows.length;
+ const stopRe=/\b(?:Identifica[cç][aã]o\s+do\s+Agente(?:\s*\/\s*Registro)?|C[oó]digo\s+RENAINF|RENAINF|INFRAEST|C[oó]d(?:igo)?\.?\s*(?:da\s+)?Infra[cç][aã]o|Placa|Munic[ií]pio|UF|Marca\s*\/\s*Modelo|Esp[eé]cie(?:\s*\/\s*Tipo)?|Tipo|Desdob(?:ramento)?\.?|Base\s+Legal|Art(?:igo)?\.?|Pontua[cç][aã]o|Data|Hora|Valor|Local\s*\/?\s*Rodovia|TIPIFICA[CÇ][AÃ]O|OUTRAS\s+OBSERVA[CÇ][OÕ]ES|INFORMA[CÇ][OÕ]ES\s+IMPORTANTES)\b/i;
+ const cleanCell=value=>{
+   let v=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+   if(!v)return '';
+   const stop=stopRe.exec(v);
+   if(stop)v=v.slice(0,stop.index);
+   const longNumber=/\s+\d{5,}\b/.exec(v);
+   if(longNumber)v=v.slice(0,longNumber.index);
+   v=v.replace(/(?:\s+\d{5,})+\s*$/,'')
+      .replace(/^[\s:;|–—-]+|[\s;|–—-]+$/g,'')
+      .replace(/\s+/g,' ').trim();
+   if(v.length<10||(v.match(/[A-ZÀ-Ü]/gi)||[]).length<8)return '';
+   if(/^(?:Descri[cç][aã]o\s+da\s+Infra[cç][aã]o|Penalidade\s+Aplicada|Identifica[cç][aã]o\s+do\s+Agente)$/i.test(v))return '';
+   // Evita aceitar uma célula de veículo/modelo como se fosse o histórico.
+   if(/\b(?:DAF\/|VOLVO\/|SCANIA\/|IVECO\/|MERCEDES[-/]|TRATOR|TRA\/C\.?)\b/i.test(v))return '';
+   if(/^[A-Z0-9.-]+\/[A-Z0-9.-]+(?:\s+[A-Z0-9.-]+){0,5}$/i.test(v))return '';
+   return normalizeFineHistory(v);
+ };
+ const tryHeading=(headingRe,start,end,skipSectionHeader=false)=>{
+   if(start<0||end<=start)return '';
+   for(let i=start;i<end;i++){
+     const row=rows[i];
+     const match=headingRe.exec(row);
+     if(!match)continue;
+     const before=row.slice(0,match.index);
+     if(skipSectionHeader&&(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$/i.test(before)||/que\s+a\s*$/i.test(before)))continue;
+     if(penaltyTitleRe.test(row)&&/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i.test(row))continue;
+     const same=cleanCell(row.slice(match.index+match[0].length));
+     if(same)return same;
+     for(let offset=1;offset<=2&&i+offset<end;offset++){
+       const next=rows[i+offset];
+       if(stopRe.test(next)||originTitleRe.test(next))break;
+       const value=cleanCell(next);
+       if(value)return value;
+     }
+   }
+   return '';
+ };
+
+ // "Penalidade Aplicada" é preferencial quando aparece como título de célula.
+ let result=tryHeading(penaltyTitleRe,0,rows.length,true);
+ if(result)return result;
+ // Neste aviso DER, o conteúdo equivalente está logo abaixo de "Descrição da Infração".
+ const descriptionStart=mainStart>=0?mainStart:0;
+ result=tryHeading(descriptionTitleRe,descriptionStart,mainEnd,false);
+ if(result)return result;
+
+ // Último recurso linear, sempre limitado ao valor imediatamente abaixo do título.
+ const text=String(sourceText||rows.join(' ')).replace(/[|]+/g,' ').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ const flatPenalty=[...text.matchAll(/\bPenalidade\s+Aplicada\b/ig)];
+ for(const match of flatPenalty){
+   const before=text.slice(Math.max(0,match.index-90),match.index);
+   if(/TIPIFICA[CÇ][AÃ]O\s+DA\s*$|que\s+a\s*$/i.test(before))continue;
+   result=cleanCell(text.slice(match.index+match[0].length,match.index+match[0].length+220));
+   if(result)return result;
+ }
+ const flatDescription=[...text.matchAll(/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/ig)];
+ for(const match of flatDescription){
+   const before=text.slice(Math.max(0,match.index-120),match.index);
+   if(/ORIGIN[AÁ]RIA[\s\S]{0,100}$/i.test(before))continue;
+   const tail=text.slice(match.index+match[0].length,match.index+match[0].length+240);
+   result=cleanCell(tail);
+   if(result)return result;
+ }
+ return '';
+}
+
+function extractMainInfractionCode(sourceRows, sourceText=''){
+ const rows=(Array.isArray(sourceRows)?sourceRows:[])
+   .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
+   .filter(Boolean);
+ const penaltySectionRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+PENALIDADE\s+APLICADA/i;
+ const mainSectionRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\b/i;
+ const originSectionRe=/TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA/i;
+ const fullCodeLabelRe=/\bC[oó0]digo\s+(?:da\s+)?Infra[cç][aã]o\b/i;
+ const shortCodeLabelRe=/\bC[oó0]d\.?\s*Infra[cç][aã]o\b/i;
+ const penaltyStart=rows.findIndex(row=>penaltySectionRe.test(row));
+ const originStart=rows.findIndex(row=>originSectionRe.test(row));
+ const mainStart=rows.findIndex(row=>mainSectionRe.test(row)&&!originSectionRe.test(row));
+ let start=penaltyStart>=0?penaltyStart:(mainStart>=0?mainStart:0);
+ let end=originStart>start?originStart:rows.length;
+
+ const normalize=value=>{
+   const raw=String(value||'').replace(/[–—−]/g,'-').trim();
+   let match=raw.match(/^\s*(\d{3})\s*-\s*(\d)(?=\s|$|[|;])/);
+   if(match)return match[1]+'-'+match[2];
+   match=raw.match(/^\s*(\d{4})(?=\s|$|[|;(])/);
+   if(match)return match[1].slice(0,3)+'-'+match[1].slice(3);
+   match=raw.match(/^\s*(\d{3})\s+(\d)(?=\s|$|[|;(])/);
+   if(match)return match[1]+'-'+match[2];
+   match=raw.match(/^\s*(\d)\s+(\d)\s+(\d)\s+(\d)(?=\s|$)/);
+   if(match)return match[1]+match[2]+match[3]+'-'+match[4];
+   return '';
+ };
+ const readAfterLabel=(row,index,labelRe)=>{
+   const match=labelRe.exec(row);
+   if(!match)return '';
+   let code=normalize(row.slice(match.index+match[0].length));
+   if(code)return code;
+   // O valor fica na linha imediatamente abaixo do cabeçalho da célula.
+   for(let offset=1;offset<=2&&index+offset<end;offset++){
+     const next=rows[index+offset];
+     if(originSectionRe.test(next)||/OUTRAS\s+OBSERVA[CÇ][OÕ]ES/i.test(next))break;
+     if(/\b(?:Base\s+Legal|Desdob(?:ramento)?\.?|Art(?:igo)?\.?|Pontua[cç][aã]o|Data|Hora|Marca\s*\/\s*Modelo|Placa|Munic[ií]pio)\b/i.test(next)&&!normalize(next))continue;
+     code=normalize(next);
+     if(code)return code;
+   }
+   return '';
+ };
+
+ // Na modalidade com tabela "Penalidade Aplicada", usar o código abreviado dessa própria tabela.
+ // Na notificação de NIC, usar "Código da Infração" na tipificação principal.
+ const allowedRows=[];
+ if(penaltyStart>=0){
+   for(let i=penaltyStart;i<end;i++)allowedRows.push({row:rows[i],index:i,labelRe:shortCodeLabelRe});
+   // Alguns modelos escrevem o título completo em vez do abreviado.
+   for(let i=0;i<allowedRows.length;i++)allowedRows[i].labelRe=/(?:C[oó0]d\.?\s*Infra[cç][aã]o|C[oó0]digo\s+(?:da\s+)?Infra[cç][aã]o)/i;
+ }else{
+   // Não utilizar o "Cód. Infração" da tabela ORIGINÁRIA. O código NIC está no campo completo.
+   const limit=originStart>0?originStart:rows.length;
+   for(let i=start;i<limit;i++)if(fullCodeLabelRe.test(rows[i]))allowedRows.push({row:rows[i],index:i,labelRe:fullCodeLabelRe});
+   if(!allowedRows.length&&originStart<0){
+     // Em documentos que não têm bloco de infração originária, a abreviação também pode ser válida.
+     for(let i=start;i<end;i++)if(shortCodeLabelRe.test(rows[i]))allowedRows.push({row:rows[i],index:i,labelRe:shortCodeLabelRe});
+   }
+ }
+ for(const entry of allowedRows){
+   const value=readAfterLabel(entry.row,entry.index,entry.labelRe);
+   if(value)return value;
+ }
+
+ // Fallback no texto linear, ainda exigindo o título completo e uma célula numérica logo após ele.
+ const text=String(sourceText||rows.join(' ')).replace(/[|]+/g,' ').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
+ const originPos=text.search(originSectionRe);
+ let scoped=penaltyStart>=0
+   ?text.slice(Math.max(0,text.search(penaltySectionRe)),originPos>0?originPos:text.length)
+   :text.slice(0,originPos>0?originPos:text.length);
+ const linearLabels=penaltyStart>=0
+   ?/(?:C[oó0]d\.?\s*Infra[cç][aã]o|C[oó0]digo\s+(?:da\s+)?Infra[cç][aã]o)/ig
+   :/C[oó0]digo\s+(?:da\s+)?Infra[cç][aã]o/ig;
+ for(const match of scoped.matchAll(linearLabels)){
+   const tail=scoped.slice(match.index+match[0].length,match.index+match[0].length+90);
+   const value=normalize(tail);
+   if(value)return value;
+ }
+ return '';
+}
+
 function extractInfractionDescription(sourceRows,sourceText=''){
   const rows=(Array.isArray(sourceRows)?sourceRows:[])
     .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
@@ -1209,6 +1378,8 @@ function parseIdentificationFine(raw){
      if(direct)code=direct[1];
    }
  }
+ // Sobrescrever qualquer leitura genérica: o código vem exclusivamente da célula sob "Código da Infração".
+ code=extractMainInfractionCode(rows,rawText);
  // Pontos multa: extrair a pontuação da tabela principal "TIPIFICAÇÃO DA INFRAÇÃO".
  // No layout marcado, o valor fica associado ao cabeçalho "Pontuação", entre Artigo (CTB) e Código RENAINF.
  let points='';
@@ -1372,12 +1543,9 @@ function parseIdentificationFine(raw){
  // For this notice, the deadline field is the labeled defense/driver-identification cutoff.
  let due=firstMatch(/\bData\s+Limite[\s\S]{0,180}?(\d{2}[/.]\d{2}[/.]\d{4})/i);
  due=due.replace(/\./g,'/');
- // Buscar a célula pelo título. Este modelo usa "Descrição da Infração";
- // o outro formato pode trazer "Penalidade Aplicada".
- let history=extractValueBelowHeading(rows,flat,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
- if(!history)history=extractValueBelowHeading(rows,flat,/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i,{maxRows:3,minLetters:9});
- if(!history)history=extractInfractionDescription(rows,flat);
- history=normalizeFineHistory(history);
+ // Histórico obtido exclusivamente da célula sob "Penalidade Aplicada"
+ // ou, neste modelo DER, sob "Descrição da Infração".
+ let history=extractAnchoredHistory(rows,rawText);
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
  const infoHeader=idxRow(/INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES/i);
@@ -1833,10 +2001,8 @@ function parsePenaltyPdf(raw){
    }
  }
 
- // Primeiro localizar o título e ler apenas o valor da célula logo abaixo.
- let anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
- if(!anchoredPenaltyHistory)anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i,{maxRows:3,minLetters:9});
- if(anchoredPenaltyHistory)penalty=normalizeFineHistory(anchoredPenaltyHistory);
+ // Recalcular a partir da célula logo abaixo do título, sem aceitar conteúdo da tabela de veículo.
+ penalty=extractAnchoredHistory(sourceRows,raw);
  // Código da infração da penalidade aplicada:
  // No impresso, o código fica na linha dos valores, à direita da descrição da penalidade;
  // o cabeçalho "Cód. Infração" fica logo acima e pode aparecer antes de outros cabeçalhos de coluna.
@@ -1915,8 +2081,9 @@ function parsePenaltyPdf(raw){
    }
  }
  // O PDF pode separar os rótulos e os valores em colunas.
- const anchoredPenaltyCode=extractCodeBelowHeading(sourceRows,text,/C[oó0]d\.?\s*Infra[cç][aã]o/i,{sectionRe:penaltySectionRe,preferLast:true});
- if(anchoredPenaltyCode)codInfracao=anchoredPenaltyCode;
+ // Sobrescrever buscas amplas: ler apenas a célula "Cód. Infração" da tabela principal
+ // ou a célula "Código da Infração" da tipificação NIC, nunca a tabela ORIGINÁRIA.
+ codInfracao=extractMainInfractionCode(sourceRows,raw);
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
