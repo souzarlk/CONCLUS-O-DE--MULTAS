@@ -414,7 +414,16 @@ pdfInput.addEventListener('change',async()=>{
    clearAutoFields();
    if(String(ocrText||'').trim())parsePenaltyPdf(ocrText);
    candidates.push({values:takeSnapshot(),text:String(ocrText||'')});
-   return chooseBest();
+   const missing=chooseBest();
+   // Nos modelos de identificação, a leitura posicional do campo principal é
+   // obrigatória, mesmo quando o OCR da página inteira inventa um código válido.
+   const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
+   if(requiresFocusedMainCode&&!focusedInfractionCodeValue&&!missing.includes('codInfracao')){
+     missing.push('codInfracao');
+     parseStatus.className='parse-status';
+     parseStatus.textContent='Conferindo diretamente a célula “Código da infração”…';
+   }
+   return missing;
  };
  const chooseBest=()=>{
    const allText=sourceTexts.join('\n');
@@ -435,7 +444,8 @@ pdfInput.addEventListener('change',async()=>{
    }
    // O código lido diretamente da célula isolada sempre vence qualquer número
    // encontrado pelo OCR geral ou em outras tabelas da notificação.
-   if(currentFineType==='identificacao')merged.codInfracao=focusedInfractionCodeValue||'';
+   const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
+   if(requiresFocusedMainCode)merged.codInfracao=focusedInfractionCodeValue||'';
    else if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
