@@ -154,7 +154,7 @@ body[data-theme="light"] .theme-toggle{
 <p class="eyebrow">FERRAMENTA DE USO FROTA</p>
 <h1 id="mainTitle">Conclusão de <span>Multas</span></h1>
 <p class="intro">Selecione o tipo de multa para acessar a ferramenta de conclusão correspondente. Este ambiente reúne os procedimentos em um único lugar.</p>
-<div class="section-title"><span>Selecione o tipo de multa</span><small>2 ferramentas disponíveis de 3 planejadas</small></div>
+<div class="section-title"><span>Selecione o tipo de multa</span><small>4 ferramentas disponíveis de 5 planejadas</small></div>
 <div class="types">
 <article class="type available feature-type" aria-labelledby="penaltyTypeTitle">
   <div class="type-heading">
@@ -176,9 +176,29 @@ body[data-theme="light"] .theme-toggle{
     <button class="access-btn" id="openIdentification" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </div>
 </article>
-<article class="type disabled" aria-label="Tipo de multa 3, em breve" aria-disabled="true">
+<article class="type available feature-type" aria-labelledby="identificationNewTypeTitle">
+  <div class="type-heading">
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
+    <h2 id="identificationNewTypeTitle">IDENTIFICAÇÃO</h2>
+  </div>
+  <div class="type-footer">
+    <span class="status">Disponível</span>
+    <button class="access-btn" id="openIdentificationNew" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</article>
+<article class="type available feature-type" aria-labelledby="identificationBoletoTypeTitle">
+  <div class="type-heading">
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
+    <h2 id="identificationBoletoTypeTitle">IDENTIFICAÇÃO COM BOLETO</h2>
+  </div>
+  <div class="type-footer">
+    <span class="status">Disponível</span>
+    <button class="access-btn" id="openIdentificationBoleto" type="button">Acessar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+</article>
+<article class="type disabled" aria-label="Tipo de multa 5, em breve" aria-disabled="true">
   <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v5c0 5 3.8 8 9 9 5.2-1 9-4 9-9V7z"/><path d="M9 12h6"/></svg></span>
-  <h2>Tipo de multa 3</h2>
+  <h2>Tipo de multa 5</h2>
   <span class="status">Em breve</span>
 </article>
 </div>
@@ -254,10 +274,20 @@ function openFineType(type){
   document.getElementById('valorLiquidoHint').textContent=isIdentification
     ?'Valor total indicado em “Valor (R$)”'
     :'Valor Integral';
-  document.getElementById('selectedFineTitle').textContent=type==='identificacao'?'NÃO IDENTIFICAÇÃO':'NÃO IDENTIFICAÇÃO COM BOLETO';
-  document.getElementById('selectedFineDescription').textContent=type==='identificacao'
-    ?'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.'
-    :'Anexe a notificação de imposição da penalidade com boleto e confira os campos reconhecidos.';
+  const fineTitles={
+    boleto:'NÃO IDENTIFICAÇÃO COM BOLETO',
+    identificacao:'NÃO IDENTIFICAÇÃO',
+    identificacaoNova:'IDENTIFICAÇÃO',
+    identificacaoBoleto:'IDENTIFICAÇÃO COM BOLETO'
+  };
+  document.getElementById('selectedFineTitle').textContent=fineTitles[type]||fineTitles.boleto;
+  const fineDescriptions={
+    boleto:'Anexe a notificação de imposição da penalidade com boleto e confira os campos reconhecidos.',
+    identificacao:'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.',
+    identificacaoNova:'Anexe o modelo de identificação. Este modo utiliza os mesmos campos e o mesmo fluxo de leitura de “NÃO IDENTIFICAÇÃO COM BOLETO”.',
+    identificacaoBoleto:'Anexe o modelo de identificação com boleto. Este modo utiliza os mesmos campos e o mesmo fluxo de leitura de “NÃO IDENTIFICAÇÃO COM BOLETO”.'
+  };
+  document.getElementById('selectedFineDescription').textContent=fineDescriptions[type]||fineDescriptions.boleto;
   document.getElementById('localMultaHint').textContent=type==='identificacao'
     ?'Endereço da infração + município'
     :'Local/Rodovia + KM + Município da infração';
@@ -282,6 +312,8 @@ function openFineType(type){
 }
 document.getElementById('openPenalty').addEventListener('click',()=>openFineType('boleto'));
 document.getElementById('openIdentification').addEventListener('click',()=>openFineType('identificacao'));
+document.getElementById('openIdentificationNew').addEventListener('click',()=>openFineType('identificacaoNova'));
+document.getElementById('openIdentificationBoleto').addEventListener('click',()=>openFineType('identificacaoBoleto'));
 document.getElementById('backBtn').addEventListener('click',()=>{detail.style.display='none';home.style.display='block';window.scrollTo({top:0,behavior:'smooth'});});
 const pdfInput=document.getElementById('pdfInput'),choosePdf=document.getElementById('choosePdf'),fileName=document.getElementById('fileName'),parseStatus=document.getElementById('parseStatus');
 choosePdf.addEventListener('click',()=>pdfInput.click());
