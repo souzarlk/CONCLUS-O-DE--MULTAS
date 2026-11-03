@@ -629,7 +629,7 @@ pdfInput.addEventListener('change',async()=>{
            try{
              for(const region of targetCrops){
                // A célula do código é conferida mesmo quando os outros campos já foram lidos.
-               if(!missing.length&&(!region.code||focusedInfractionCodeValue))break;
+               if(!missing.length&&focusedInfractionCodeValue)break;
                if(region.code){
                  const focusedCode=await readFocusedInfractionCode(region);
                  if(focusedCode)focusedInfractionCodeValue=focusedCode;
@@ -715,7 +715,7 @@ pdfInput.addEventListener('change',async()=>{
            await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
            targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            for(const region of targetCrops){
-             if(!missing.length&&(!region.code||focusedInfractionCodeValue))break;
+             if(!missing.length&&focusedInfractionCodeValue)break;
              if(region.code){
                const focusedCode=await readFocusedInfractionCode(region);
                if(focusedCode)focusedInfractionCodeValue=focusedCode;
