@@ -789,15 +789,15 @@ function extractOwnerCompanyValue(sourceRows, sourceText='', dedicatedRegion=fal
  const clean=x=>String(x||'').replace(/^[\s:;|–—-]+|[\s:;|–—-]+$/g,'').replace(/\s+/g,' ').trim();
  const suffixRe=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?\s*A\.?|SPE)\b/i;
  const stopRe=/\b(?:Local\s+da\s+Infra[cç][aã]o|IDENTIFICA[CÇ][AÃ]O\s+DO\s+LOCAL|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie|Tipo|CPF\s*\/?\s*CNPJ|CNPJ\s*\/?\s*CPF|Endere[cç]o|CEP)\b/i;
- const parseCandidate=value=>{
+ const parseCandidate=(value,allowMissingLegalSuffix=false)=>{
    let v=clean(value);
    const title=/\bNome\b/i.exec(v);
    if(title)v=v.slice(title.index+title[0].length);
    const stop=stopRe.exec(v);
    if(stop)v=v.slice(0,stop.index);
    const suffix=suffixRe.exec(v);
-   if(!suffix)return '';
-   v=v.slice(0,suffix.index+suffix[0].length);
+   if(suffix)v=v.slice(0,suffix.index+suffix[0].length);
+   else if(!allowMissingLegalSuffix)return '';
    const tokens=v.match(/[A-ZÀ-Ü0-9&.'’()/-]+/ig)||[];
    const name=clean(tokens.join(' '));
    if(tokens.length<3||name.replace(/[^A-ZÀ-Ü]/gi,'').length<9)return '';
@@ -808,14 +808,14 @@ function extractOwnerCompanyValue(sourceRows, sourceText='', dedicatedRegion=fal
    for(let i=Math.max(0,start);i<end;i++){
      const row=rows[i]||'',title=/\bNome\b/i.exec(row);
      if(!title)continue;
-     let value=parseCandidate(row.slice(title.index+title[0].length));
+     let value=parseCandidate(row.slice(title.index+title[0].length),true);
      if(value)return value;
      for(let j=i+1;j<Math.min(end,i+5);j++){
-       value=parseCandidate(rows[j]);
+       value=parseCandidate(rows[j],true);
        if(value)return value;
        if(stopRe.test(rows[j]))break;
      }
-     value=parseCandidate(rows.slice(i+1,Math.min(end,i+4)).join(' '));
+     value=parseCandidate(rows.slice(i+1,Math.min(end,i+4)).join(' '),true);
      if(value)return value;
    }
    return '';
@@ -835,7 +835,7 @@ function extractOwnerCompanyValue(sourceRows, sourceText='', dedicatedRegion=fal
  }
  const text=String(sourceText||'').replace(/__OWNER_REGION__/g,' ').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
  for(const title of text.matchAll(/\bNome\b/ig)){
-   found=parseCandidate(text.slice(title.index+title[0].length,title.index+title[0].length+260));
+   found=parseCandidate(text.slice(title.index+title[0].length,title.index+title[0].length+260),true);
    if(found)return found;
  }
  return '';
@@ -1826,7 +1826,8 @@ function parsePenaltyPdf(raw){
  }
 
  // Primeiro localizar o título e ler apenas o valor da célula logo abaixo.
- const anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
+ let anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/\bPenalidade\s+Aplicada\b/i,{maxRows:3,minLetters:9});
+ if(!anchoredPenaltyHistory)anchoredPenaltyHistory=extractValueBelowHeading(sourceRows,text,/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i,{maxRows:3,minLetters:9});
  if(anchoredPenaltyHistory)penalty=normalizeFineHistory(anchoredPenaltyHistory);
  // Código da infração da penalidade aplicada:
  // No impresso, o código fica na linha dos valores, à direita da descrição da penalidade;
