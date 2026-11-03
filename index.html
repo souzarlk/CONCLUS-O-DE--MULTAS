@@ -89,6 +89,51 @@ body[data-theme="light"] .access-btn{color:#fff}
  .access-btn,.access-btn svg,.type.available{transition:none}
 }
 
+
+/* Tema claro Costalog: ambiente vermelho com Matrix branco e logo monocromática. */
+body[data-theme="light"]{
+  color-scheme:light;
+  background:#b90010;
+  color:#fff;
+}
+body[data-theme="light"] .ambient-bg{
+  background:
+    radial-gradient(ellipse at 12% 10%,rgba(255,90,100,.30),transparent 38%),
+    radial-gradient(ellipse at 88% 86%,rgba(75,0,8,.28),transparent 39%),
+    linear-gradient(135deg,#e30613 0%,#bd0010 52%,#92000b 100%);
+}
+body[data-theme="light"] .ambient-bg .matrix{
+  opacity:.48;
+  mix-blend-mode:screen;
+}
+body[data-theme="light"] .ambient-bg .glow{opacity:.22}
+body[data-theme="light"] .ambient-bg .g1{background:#ff5360}
+body[data-theme="light"] .ambient-bg .g2{background:#650008}
+body[data-theme="light"] .ambient-bg .grid{
+  opacity:.09;
+  background-image:
+    linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);
+}
+body[data-theme="light"] .brand img{
+  filter:brightness(0) invert(1) drop-shadow(0 6px 20px rgba(40,0,4,.35));
+}
+body[data-theme="light"] .footnote{
+  border-color:rgba(255,255,255,.26);
+  color:rgba(255,255,255,.86);
+}
+body[data-theme="light"] .footnote svg{stroke:#fff}
+body[data-theme="light"] .footer{color:rgba(255,255,255,.78)}
+body[data-theme="light"] .footer strong{color:#fff}
+body[data-theme="light"] .theme-toggle{
+  color:#292126;
+  background:rgba(255,255,255,.94);
+  border-color:rgba(255,255,255,.72);
+}
+@media(prefers-reduced-motion:reduce){
+  body[data-theme="light"] .ambient-bg .matrix{opacity:.34}
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}</script>
 </head>
@@ -1790,7 +1835,7 @@ if(matrixCanvas){
    matrixCtx.clearRect(0,0,matrixWidth,matrixHeight);
    matrixCtx.font='600 12px ui-monospace,Consolas,monospace';
    matrixCtx.textAlign='center';
-   matrixCtx.fillStyle=body.dataset.theme==='light'?'rgba(190,0,16,.10)':'rgba(255,55,67,.13)';
+   matrixCtx.fillStyle=body.dataset.theme==='light'?'rgba(255,255,255,.58)':'rgba(255,55,67,.13)';
    for(let col=0;col<matrixColumns;col+=3){
     const y=(col*53)%Math.max(1,matrixHeight);
     matrixCtx.fillText((col%2?'0':'1'),col*fontSize,y);
@@ -1802,7 +1847,7 @@ if(matrixCanvas){
    if(timestamp-lastMatrixFrame<frameDelay)return;
    lastMatrixFrame=timestamp;
    const light=body.dataset.theme==='light';
-   matrixCtx.fillStyle=light?'rgba(244,245,248,.16)':'rgba(7,8,11,.13)';
+   matrixCtx.fillStyle=light?'rgba(150,0,12,.17)':'rgba(7,8,11,.13)';
    matrixCtx.fillRect(0,0,matrixWidth,matrixHeight);
    matrixCtx.font='600 13px ui-monospace,SFMono-Regular,Consolas,monospace';
    matrixCtx.textAlign='center';
@@ -1811,9 +1856,9 @@ if(matrixCanvas){
     const y=matrixDrops[col]*fontSize;
     const isHead=Math.random()>.965;
     matrixCtx.fillStyle=isHead
-      ?(light?'rgba(180,0,14,.72)':'rgba(255,90,99,.92)')
-      :(light?'rgba(188,0,15,.30)':'rgba(227,6,19,.48)');
-    matrixCtx.shadowColor=light?'rgba(227,6,19,.15)':'rgba(227,6,19,.35)';
+      ?(light?'rgba(255,255,255,.98)':'rgba(255,90,99,.92)')
+      :(light?'rgba(255,255,255,.66)':'rgba(227,6,19,.48)');
+    matrixCtx.shadowColor=light?'rgba(255,255,255,.72)':'rgba(227,6,19,.35)';
     matrixCtx.fillText(Math.random()>.5?'0':'1',col*fontSize,y);
     if(y>matrixHeight&&Math.random()>.978)matrixDrops[col]=-Math.random()*18;
     else matrixDrops[col]+=Math.random()>.94?1.35:.78;
