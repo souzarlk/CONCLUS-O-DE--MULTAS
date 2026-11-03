@@ -673,7 +673,7 @@ pdfInput.addEventListener('change',async()=>{
            for(const region of targetCrops){
              if(!missing.length)break;
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
-             missing=addCandidate((region.owner?'__OWNER_REGION__\n':'')+regionText);
+             missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
            }
          }finally{
            targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
