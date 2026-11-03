@@ -755,7 +755,7 @@ function extractRoadLocation(sourceRows){
     for(const candidate of candidates){
       const cleaned=cleanText(candidate).replace(/\b\d{2}[/.]\d{2}[/.]\d{4}\b[\s\S]*$/,'');
       const city=canonicalCity(cleaned);
-      if(city.length>=3&&/[A-ZÀ-Ü]{3}/i.test(city)&&!stopRe.test(city)&&!/^\d/.test(city)){
+      if(city.replace(/[^A-ZÀ-Ü]/g,'').length>=4&&/[A-ZÀ-Ü]{3}/i.test(city)&&!stopRe.test(city)&&!/^\d/.test(city)){
         municipality=city;break;
       }
     }
@@ -1143,6 +1143,9 @@ function parseIdentificationFine(raw){
     const candidates=[...originRegion.matchAll(/\b(\d{4})\b/g)].map(m=>m[1]);
     originInfractionCode=candidates.find(value=>!['9503','2025','2026'].includes(value))||'';
   }
+  if(!originInfractionCode&&/\b5002\b/.test(flat)&&/\b5703(?:[-/]\s*0)?\b/.test(flat)){
+    originInfractionCode='5703';
+  }
   if(!points){
     const pointsByOriginCode={'5703':'4'};
     if(pointsByOriginCode[originInfractionCode])points=pointsByOriginCode[originInfractionCode];
@@ -1230,7 +1233,11 @@ function parseIdentificationFine(raw){
  let history=extractInfractionDescription(rows,flat);
  history=history.replace(/^Muita(?=\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o)/i,'Multa');
   const nicDescription=flat.match(/M(?:ul|ui)ta\s*,?\s*por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator(?:\s*,?\s*imposta\s+a\s+pessoas?\s+jur[ií]dica)?/i);
- if(nicDescription)history=clean(nicDescription[0]).replace(/^Muita/i,'Multa').trim();
+ if(nicDescription){
+   history=clean(nicDescription[0]).replace(/^Muita/i,'Multa')
+     .replace(/\bPessoas?\s+jur[ií]dica\b/i,'pessoa jurídica').trim();
+   if(history&&!/[.!?]$/.test(history))history+='.';
+ }
  history=history.replace(/\s+(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES)\b[\s\S]*$/i,'').trim();
  // Valor total: capturar o montante associado ao rótulo “Valor (R$)” dentro de Informações Complementares.
  let amount='';
