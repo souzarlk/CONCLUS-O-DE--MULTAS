@@ -169,7 +169,7 @@ body[data-theme="light"] .theme-toggle{
 <article class="type available feature-type" aria-labelledby="identificationTypeTitle">
   <div class="type-heading">
     <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
-    <h2 id="identificationTypeTitle">APENAS IDENTIFICAÇÃO</h2>
+    <h2 id="identificationTypeTitle">NÃO IDENTIFICAÇÃO</h2>
   </div>
   <div class="type-footer">
     <span class="status">Disponível</span>
@@ -254,7 +254,7 @@ function openFineType(type){
   document.getElementById('valorLiquidoHint').textContent=isIdentification
     ?'Valor total indicado em “Valor (R$)”'
     :'Valor Integral';
-  document.getElementById('selectedFineTitle').textContent=type==='identificacao'?'APENAS IDENTIFICAÇÃO':'NÃO IDENTIFICAÇÃO COM BOLETO';
+  document.getElementById('selectedFineTitle').textContent=type==='identificacao'?'NÃO IDENTIFICAÇÃO':'NÃO IDENTIFICAÇÃO COM BOLETO';
   document.getElementById('selectedFineDescription').textContent=type==='identificacao'
     ?'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.'
     :'Anexe a notificação de imposição da penalidade com boleto e confira os campos reconhecidos.';
