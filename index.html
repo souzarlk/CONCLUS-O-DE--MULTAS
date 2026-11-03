@@ -689,6 +689,9 @@ pdfInput.addEventListener('change',async()=>{
    const raw=pages.join(' | ');
    if(raw.trim())addCandidate(raw);else addCandidate('');
    let missing=chooseBest();
+   // O fluxo de PDF também deve executar a conferência contextual do código,
+   // mesmo quando o texto extraído da página parece ter preenchido o campo.
+   if(!codeContextChecked&&!missing.includes('codInfracao'))missing.push('codInfracao');
    if(missing.length){
      if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
      const renderAndRecognize=async(useThreshold,segmentationMode=6)=>{
