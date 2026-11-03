@@ -494,20 +494,15 @@ pdfInput.addEventListener('change',async()=>{
  };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
-   // Leitura sequencial (não paralela) para evitar disputa entre workers Tesseract.
-   const readDigits=async mode=>{
-     const raw=await recognize(region.canvas,'Conferindo os dígitos do código da infração…',mode,'0123456789');
-     const matches=[...String(raw||'').matchAll(/(?:^|\D)(\d{4})(?=\D|$)/g)].map(match=>match[1]);
-     const unique=[...new Set(matches)];
-     return unique.length===1?unique[0]:'';
-   };
-   const readings=[];
+   // Neste recorte estreito só existe a célula do código. A primeira leitura
+   // é a leitura normal do Tesseract (PSM 6); aceita apenas um token de 4 dígitos.
+   // Não exige concordância com PSM 11, que estava fazendo o campo ficar vazio.
    for(const mode of [6,11,7]){
-     const code=await readDigits(mode);
-     if(code)readings.push(code);
-     const count=readings.filter(value=>value===code).length;
-     if(code&&count>=2){
-       const normalized=normalizeInfractionCode(code);
+     const raw=await recognize(region.canvas,'Lendo o número da célula Código da infração…',mode,'0123456789');
+     const tokens=[...String(raw||'').matchAll(/(?:^|\D)(\d{4})(?=\D|$)/g)].map(match=>match[1]);
+     const unique=[...new Set(tokens)];
+     if(unique.length===1){
+       const normalized=normalizeInfractionCode(unique[0]);
        if(/^\d{3}-\d$/.test(normalized))return normalized;
      }
    }
@@ -533,8 +528,8 @@ pdfInput.addEventListener('change',async()=>{
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
      // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
-     {name:'Código da infração - valor isolado',left:.055,right:.22,top:.335,bottom:.385,mode:6,code:true},
-     {name:'Código da infração - valor isolado alternativo',left:.055,right:.22,top:.335,bottom:.385,mode:11,code:true},
+     {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
+     {name:'Código da infração - valor isolado alternativo',left:.06,right:.17,top:.34,bottom:.37,mode:11,code:true},
      {name:'Código da infração - título e valor',left:.05,right:.61,top:.30,bottom:.39,mode:6,codeContext:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
