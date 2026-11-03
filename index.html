@@ -521,6 +521,8 @@ pdfInput.addEventListener('change',async()=>{
      if(formatted.length===1)return formatted[0];
      const compact=[...raw.matchAll(/(?:^|\D)(\d{4})(?=$|\D)/g)].map(m=>m[1].slice(0,3)+'-'+m[1].slice(3));
      if(compact.length===1)return compact[0];
+     const glued=[...raw.matchAll(/(?:^|\D)6(\d{4})(?=$|\D)/g)].map(m=>m[1].slice(0,3)+'-'+m[1].slice(3));
+     if(glued.length===1)return glued[0];
      const spaced=[...raw.matchAll(/(?:^|\D)(\d)\s+(\d)\s+(\d)\s+(\d)(?=$|\D)/g)].map(m=>m[1]+m[2]+m[3]+'-'+m[4]);
      if(spaced.length===1)return spaced[0];
      return '';
@@ -546,7 +548,7 @@ pdfInput.addEventListener('change',async()=>{
        if(first!=='COD'&&first!=='CODIGO')continue;
        for(let j=i+1;j<Math.min(words.length,i+4);j++){
          const next=normalizeWord(words[j].text);
-         if(next==='DA'||next==='DE'||next==='DO')continue;
+         if(!next||next==='DA'||next==='DE'||next==='DO')continue;
          if(next==='INFRACAO'){
            const a=words[i].bbox,b=words[j].bbox;
            const centerA=(a.y0+a.y1)/2,centerB=(b.y0+b.y1)/2;
