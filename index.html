@@ -209,8 +209,12 @@ pdfInput.addEventListener('change',async()=>{
  };
  const fieldUsable=(id,value)=>{
    const v=String(value||'').trim();if(!v)return false;
+   if(id==='fornecedor'){
+     const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+     if(/\b(?:ORGAO AUTUADOR|IDENTIFICACAO DA AUTUACAO|CODIGO DO ORGAO|AUTO DE INFRACAO|DATA DA POSTAGEM)\b/.test(normalized))return false;
+     return /[A-Z]{3}/.test(normalized);
+   }
    // AIT/N° multa somente aceita um identificador no formato do auto.
-   // Isso impede que títulos como "TAuto dae Infração" sejam mantidos como dados.
    if(['ait','numeroMulta','aitOriginaria'].includes(id)){
      const compact=v.toUpperCase().replace(/\s+/g,'');
      return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
@@ -566,50 +570,54 @@ function parseIdentificationFine(raw){
    if(m)company=clean(m[1]);
  }
  company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
- // Fornecedor: extrair o valor ligado ao rótulo "Órgão Autuador".
- // O OCR pode remover acentos e intercalar os cabeçalhos das colunas com os valores.
- let org='';
- const orgLabelRe=/[oó0]rg[aã]o\s+autuador/i;
- const orgHeader=idxRow(orgLabelRe);
- const cleanOrgCandidate=value=>{
-   let candidate=clean(value);
-   candidate=candidate.replace(/^.*?[oó0]rg[aã]o\s+autuador\s*[:.-]?/i,' ');
-   // Retira rótulos e identificadores de colunas que podem aparecer entre o órgão e seu valor.
-   candidate=candidate.replace(/\b(?:C[oó0]digo(?:\s+do\s+[oó0]rg[aã]o)?|N[ºo°o]?\s*do\s+Auto)\b/ig,' ');
-   candidate=candidate.replace(/\b[A-Z]{1,5}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b/ig,' ');
-   candidate=candidate.replace(/\b\d{3,}\b/g,' ');
-   candidate=candidate.replace(/\s+(?:Nome\s+do\s+Propriet[aá]rio|Placa|Marca\s*\/\s*Modelo|Data|Hora|Munic[ií]pio|UF|Esp[eé]cie|Tipo|Endere[cç]o|Observa[cç][oõ]es)\b[\s\S]*$/i,'');
-   candidate=candidate.replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
-   if(!candidate || /^\d/.test(candidate) || /^(?:C[oó0]digo|N[ºo°]?|Placa|Data|Hora|Nome|Marca|Modelo|UF)\b/i.test(candidate))return '';
-   if(!/[A-ZÀ-Ü]{2}/i.test(candidate))return '';
-   return candidate;
- };
- if(orgHeader>=0){
-   // Verifica a linha do rótulo e as linhas seguintes: o órgão pode estar em outra coluna/linha.
-   for(let i=orgHeader;i<Math.min(rows.length,orgHeader+9)&&!org;i++){
-     const row=rows[i];
-     const labelMatch=orgLabelRe.exec(row);
-     const rawCandidate=labelMatch?row.slice(labelMatch.index+labelMatch[0].length):row;
-     const candidate=cleanOrgCandidate(rawCandidate);
-     if(candidate.length>=3)org=candidate;
-   }
-   // Última tentativa: juntar as linhas próximas quando o OCR divide o nome em vários trechos.
-   if(!org){
-     const region=rows.slice(orgHeader,Math.min(rows.length,orgHeader+9)).join(' ');
-     const label=orgLabelRe.exec(region);
-     if(label){
-       const candidate=cleanOrgCandidate(region.slice(label.index+label[0].length));
-       if(candidate.length>=3)org=candidate;
-     }
-   }
- }
- // Recupera o nome quando o OCR leu a entidade, mas perdeu ou deformou o cabeçalho.
- if(!org){
-   const knownAgency=flat.match(/\b(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+S[AÃ]O\s+PAULO)?)\b/i);
-   if(knownAgency)org=clean(knownAgency[1]);
- }
- org=org.replace(/\s+/g,' ').trim();
- // Plate: search around the "Placa" row and accept both old and Mercosul formats.
+ // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
+  // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
+  let org='';
+  const orgLabelRe=/[oó0]rg[aã]o\s+autuador/i;
+  const orgHeader=idxRow(orgLabelRe);
+  const orgOtherHeaderRe=/\b(?:IDENTIFICA[CÇ][AÃ]O\s+DA\s+AUTUA[CÇ][AÃ]O|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo)\b/i;
+  const orgValueNoiseRe=/\b(?:N[ºo°]?\s*do\s+Auto|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo|UF)\b/i;
+  const cleanOrgCandidate=value=>{
+    let candidate=clean(value);
+    const label=orgLabelRe.exec(candidate);
+    if(label)candidate=candidate.slice(label.index+label[0].length);
+    // Títulos de outras colunas encerram a célula, não são o fornecedor.
+    const otherHeader=orgOtherHeaderRe.exec(candidate);
+    if(otherHeader)candidate=candidate.slice(0,otherHeader.index);
+    // Interromper antes dos valores da coluna seguinte (código, auto, data ou hora).
+    const dataValue=/(?:\b[A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b|\b\d{3,}\b|\b\d{2}[/.]\d{2}[/.]\d{4}\b|\b\d{2}:\d{2}\b)/i.exec(candidate);
+    if(dataValue)candidate=candidate.slice(0,dataValue.index);
+    candidate=candidate.replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+    if(!candidate||candidate.length<3||!/[A-ZÀ-Ü]{2}/i.test(candidate))return '';
+    if(/^(?:Órg[aã]o\s+Autuador|Identifica[cç][aã]o\s+da\s+Autua[cç][aã]o|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem)$/i.test(candidate))return '';
+    if(orgValueNoiseRe.test(candidate))return '';
+    return candidate;
+  };
+  if(orgHeader>=0){
+    // 1) Só usar algo na própria linha se for claramente o conteúdo da célula após o rótulo.
+    const headerRow=rows[orgHeader];
+    const label=orgLabelRe.exec(headerRow);
+    const sameRowValue=label?cleanOrgCandidate(headerRow.slice(label.index+label[0].length)):'';
+    if(sameRowValue)org=sameRowValue;
+
+    // 2) A regra principal: o fornecedor está na linha de valores logo abaixo do cabeçalho.
+    // Ignorar células/linhas que contenham apenas os títulos de outras colunas.
+    for(let i=orgHeader+1;i<Math.min(rows.length,orgHeader+7)&&!org;i++){
+      let candidate=cleanOrgCandidate(rows[i]);
+      if(!candidate)continue;
+
+      // Se o OCR quebrou a razão do órgão em mais de uma linha, anexar continuação
+      // iniciada por preposição/conjunção (ex.: "DE RODAGEM").
+      for(let j=i+1;j<Math.min(rows.length,orgHeader+9);j++){
+        const continuation=cleanOrgCandidate(rows[j]);
+        if(!continuation||!/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation))break;
+        candidate=clean(candidate+' '+continuation);
+      }
+      org=candidate;
+    }
+  }
+  org=org.replace(/\s+/g,' ').trim();
+  // Plate: search around the "Placa" row and accept both old and Mercosul formats.
  let plate='';
  const plateHeader=idxRow(/\bPlaca\b/i);
  for(let i=Math.max(0,plateHeader);plateHeader>=0&&i<Math.min(rows.length,plateHeader+6);i++){
