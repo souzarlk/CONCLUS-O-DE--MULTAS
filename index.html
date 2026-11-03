@@ -339,6 +339,7 @@ pdfInput.addEventListener('change',async()=>{
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
+ let focusedInfractionCodeValue='';
  const targetIds=currentFineType==='identificacao'
    ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
@@ -432,6 +433,9 @@ pdfInput.addEventListener('change',async()=>{
    if(merged.codInfracao){
      merged.codInfracao=normalizeInfractionCode(merged.codInfracao);
    }
+   // O código lido diretamente da célula isolada sempre vence qualquer número
+   // encontrado pelo OCR geral ou em outras tabelas da notificação.
+   if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
@@ -473,17 +477,35 @@ pdfInput.addEventListener('change',async()=>{
    }
    ctx.putImageData(image,0,0);return canvas;
  };
- const recognize=async(source,message,segmentationMode=6)=>{
+ const recognize=async(source,message,segmentationMode=6,charWhitelist='')=>{
    const worker=await Tesseract.createWorker('por',1,{logger:m=>{
      if(m.status==='recognizing text')parseStatus.textContent=message+' '+Math.round((m.progress||0)*100)+'%';
    }});
    try{
-     await worker.setParameters({tessedit_pageseg_mode:String(segmentationMode),preserve_interword_spaces:'1',user_defined_dpi:'300'});
+     const parameters={tessedit_pageseg_mode:String(segmentationMode),preserve_interword_spaces:'1',user_defined_dpi:'450'};
+     if(charWhitelist)parameters.tessedit_char_whitelist=charWhitelist;
+     await worker.setParameters(parameters);
      const result=await worker.recognize(source);
      return result.data.text||'';
    }finally{
      await worker.terminate();
    }
+ };
+ const readFocusedInfractionCode=async region=>{
+   if(!region||!region.canvas)return '';
+   // O recorte contém somente a célula do código. A whitelist faz o OCR ignorar
+   // completamente o título e qualquer texto adjacente, lendo apenas os dígitos.
+   const numericText=await recognize(region.canvas,'Lendo somente os números da célula Código da infração…',region.mode||6,'0123456789');
+   const tokens=[...String(numericText||'').matchAll(/(?:^|\D)(\d{4,5})(?=\D|$)/g)].map(match=>match[1]);
+   const unique=[...new Set(tokens)];
+   if(unique.length===1){
+     const normalized=normalizeInfractionCode(unique[0]);
+     if(/^\d{3}-\d$/.test(normalized))return normalized;
+   }
+   // Último fallback: usar o leitor normal do recorte, sem depender de acertar o título.
+   const ordinaryText=await recognize(region.canvas,'Conferindo o código da infração…',region.mode||6);
+   return extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+numericText,true)
+     ||extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+ordinaryText,true);
  };
  const buildIdentificationTargetCrops=source=>{
    if(!source||!source.width||!source.height)return [];
@@ -592,7 +614,12 @@ pdfInput.addEventListener('change',async()=>{
            const targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            try{
              for(const region of targetCrops){
-               if(!missing.length)break;
+               // A célula do código é conferida mesmo quando os outros campos já foram lidos.
+               if(!missing.length&&(!region.code||focusedInfractionCodeValue))break;
+               if(region.code){
+                 const focusedCode=await readFocusedInfractionCode(region);
+                 if(focusedCode)focusedInfractionCodeValue=focusedCode;
+               }
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
                missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
              }
@@ -671,7 +698,11 @@ pdfInput.addEventListener('change',async()=>{
            await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
            targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            for(const region of targetCrops){
-             if(!missing.length)break;
+             if(!missing.length&&(!region.code||focusedInfractionCodeValue))break;
+             if(region.code){
+               const focusedCode=await readFocusedInfractionCode(region);
+               if(focusedCode)focusedInfractionCodeValue=focusedCode;
+             }
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
              missing=addCandidate((region.code?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
            }
