@@ -1134,6 +1134,49 @@ function extractInfractionCodeFromCell(sourceText='',allowUnlabeled=false){
  return '';
 }
 
+function extractCodeImmediatelyAfterCodInfractionLabel(sourceRows, sourceText=''){
+ // Regra principal da multa: localizar o título "Cód. Infração" e ler o valor
+ // que vem logo depois/abaixo dele. Não procurar códigos soltos no restante do documento.
+ const rows=(Array.isArray(sourceRows)?sourceRows:String(sourceText||'').split(/[|\\r\\n]+/))
+   .map(row=>String(row||'').replace(/[\\u00a0\\t]+/g,' ').replace(/\\s+/g,' ').trim())
+   .filter(Boolean);
+ const labelRe=/C[oó0]d(?:igo)?\\.?\\s*(?:d[aeo]\\s*)?Infra[cç][aã]o/i;
+ const parse=value=>{
+   const s=String(value||'').replace(/[–—−]/g,'-').trim();
+   let m=s.match(/(?:^|\\D)(\\d{3})\\s*-\\s*(\\d)(?=$|\\D)/);
+   if(m)return m[1]+'-'+m[2];
+   m=s.match(/(?:^|\\D)(\\d{4})(?=$|\\D)/);
+   if(m)return m[1].slice(0,3)+'-'+m[1].slice(3);
+   m=s.match(/(?:^|\\D)(\\d{3})\\s+(\\d)(?=$|\\D)/);
+   if(m)return m[1]+'-'+m[2];
+   return '';
+ };
+ // Ler de baixo para cima para priorizar a ocorrência da tabela de penalidade,
+ // que normalmente aparece depois de outros dados/códigos da infração originária.
+ for(let i=rows.length-1;i>=0;i--){
+   const label=labelRe.exec(rows[i]);
+   if(!label)continue;
+   const sameRow=parse(rows[i].slice(label.index+label[0].length));
+   if(sameRow)return sameRow;
+   for(let offset=1;offset<=4&&i+offset<rows.length;offset++){
+     const next=rows[i+offset];
+     if(/TIPIFICA[CÇ][AÃ]O|OUTRAS\\s+OBSERVA[CÇ][OÕ]ES|Descri[cç][aã]o\\s+da\\s+Infra[cç][aã]o/i.test(next))break;
+     const value=parse(next);
+     if(value)return value;
+   }
+ }
+ // Último recurso para PDF.js/Tesseract que devolve o cabeçalho e a célula
+ // em uma única sequência de texto, sem quebras de linha confiáveis.
+ const flat=String(sourceText||rows.join(' | ')).replace(/[–—−]/g,'-').replace(/[\\u00a0\\t]+/g,' ').replace(/\\s+/g,' ');
+ const labels=[...flat.matchAll(/C[oó0]d(?:igo)?\\.?\\s*(?:d[aeo]\\s*)?Infra[cç][aã]o/ig)];
+ for(let i=labels.length-1;i>=0;i--){
+   const tail=flat.slice(labels[i].index+labels[i][0].length,labels[i].index+labels[i][0].length+100);
+   const value=parse(tail);
+   if(value)return value;
+ }
+ return '';
+}
+
 function extractMainInfractionCode(sourceRows, sourceText=''){
  const rows=(Array.isArray(sourceRows)?sourceRows:[])
    .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
@@ -2194,7 +2237,7 @@ function parsePenaltyPdf(raw){
  // O PDF pode separar os rótulos e os valores em colunas.
  // Sobrescrever buscas amplas: ler apenas a célula "Cód. Infração" da tabela principal
  // ou a célula "Código da Infração" da tipificação NIC, nunca a tabela ORIGINÁRIA.
- codInfracao=(String(raw||'').includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(raw,true):'')||extractMainInfractionCode(sourceRows,raw)||normalizeInfractionCode(codInfracao);
+ codInfracao=extractCodeImmediatelyAfterCodInfractionLabel(sourceRows,raw)||(String(raw||'').includes('__INFRACTION_CODE_CELL__')?extractInfractionCodeFromCell(raw,true):'')||extractMainInfractionCode(sourceRows,raw)||normalizeInfractionCode(codInfracao);
  const moneyNear=(labelRe,stopRe)=>{const matches=[...text.matchAll(new RegExp(labelRe.source,labelRe.flags.includes('g')?labelRe.flags:labelRe.flags+'g'))];for(const m of matches){const chunk=text.slice(m.index+m[0].length,m.index+m[0].length+180);const stop=stopRe?stopRe.exec(chunk):null;const v=money(stop?chunk.slice(0,stop.index):chunk);if(v)return v;}return '';};
  let integral=moneyNear(/Valor\s+Integral\s*[:.]?\s*/i,/Valor\s+Com\s+Desconto|Data\s+de\s+Vencimento|Data\s+da\s+Postagem/i);
  let discounted=moneyNear(/Valor\s+Com\s+Desconto\s*[:.]?\s*/i,/Data\s+de\s+Vencimento|Data\s+da\s+Postagem|Penalidade\s+Aplicada/i);
