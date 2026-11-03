@@ -340,7 +340,7 @@ pdfInput.addEventListener('change',async()=>{
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
  let focusedInfractionCodeValue='';
- const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
+ let requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
  const targetIds=currentFineType==='identificacao'
    ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
@@ -410,10 +410,21 @@ pdfInput.addEventListener('change',async()=>{
    return missing;
  };
  const candidates=[];const sourceTexts=[];
+ const activateIdentificationLayout=()=>{
+   if(requiresFocusedMainCode)return;
+   requiresFocusedMainCode=true;
+   const identificationIds=['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta'];
+   targetIds.splice(0,targetIds.length,...identificationIds);
+   if(!autoFieldIds.includes('pontosMulta'))autoFieldIds.push('pontosMulta');
+ };
  const addCandidate=ocrText=>{
    sourceTexts.push(String(ocrText||''));
+   if(isIdentificationNoticeDocument(ocrText))activateIdentificationLayout();
    clearAutoFields();
-   if(String(ocrText||'').trim())parsePenaltyPdf(ocrText);
+   if(String(ocrText||'').trim()){
+     if(requiresFocusedMainCode)parseIdentificationFine(ocrText);
+     else parsePenaltyPdf(ocrText);
+   }
    candidates.push({values:takeSnapshot(),text:String(ocrText||'')});
    const missing=chooseBest();
    // Sempre inspecionar o título + valor da célula principal, mesmo quando o OCR
@@ -508,10 +519,14 @@ pdfInput.addEventListener('change',async()=>{
    // Aceitar esses três formatos, mas só validar códigos finais NNN-N.
    for(const mode of [6,11,7]){
      const raw=await recognize(region.canvas,'Lendo o número da célula Código da infração…',mode,'0123456789');
-     const tokens=[...String(raw||'').matchAll(/(?:^|\D)(\d(?:\s*\d){3,4})(?=\D|$)/g)]
-       .map(match=>match[1].replace(/\s+/g,''))
-       .filter(token=>token.length===4||/^6\d{4}$/.test(token));
-     const normalized=[...new Set(tokens.map(normalizeInfractionCode).filter(value=>/^\d{3}-\d$/.test(value)))];
+     const rawText=String(raw||'');
+     const formatted=[...rawText.matchAll(/(?:^|\D)(\d{3}\s*[-–—−]\s*\d)(?=\D|$)/g)].map(match=>match[1]);
+     const compact=[...rawText.matchAll(/(?:^|\D)(\d(?:\s*\d){3,4})(?=\D|$)/g)].map(match=>match[1]);
+     const tokens=[...formatted,...compact].map(token=>token.replace(/\s+/g,''));
+     const normalized=[...new Set(tokens
+       .filter(token=>token.length===4||/^6\d{4}$/.test(token))
+       .map(normalizeInfractionCode)
+       .filter(value=>/^\d{3}-\d$/.test(value)))];
      if(normalized.length===1)return normalized[0];
    }
    return '';
@@ -521,12 +536,12 @@ pdfInput.addEventListener('change',async()=>{
    // Leituras independentes de cada célula: a faixa da empresa inclui o valor
    // abaixo de "Nome", e as demais cobrem descrição/código/pontuação nos dois layouts.
    const regions=[
+     {name:'Órgão Autuador - cabeçalho e valor',left:0,right:1,top:.105,bottom:.255,mode:11},
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
-     // Primeiro lê título + valor e confirma que é a célula correta.
-     // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
-     // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
-     {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
+     // Lê o título e o número juntos para confirmar a célula principal.
+     {name:'Código da infração - título e valor',left:.05,right:.25,top:.325,bottom:.39,mode:6,code:true},
+     // Fallback independente com recorte numérico estreito.
      {name:'Código da infração - valor isolado alternativo',left:.06,right:.17,top:.34,bottom:.37,mode:11,code:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
@@ -1263,6 +1278,15 @@ function extractInfractionDescription(sourceRows,sourceText=''){
   return '';
 }
 
+function isIdentificationNoticeDocument(value){
+ const text=String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-BR');
+ const hasNoticeHeader=/NOTIFICACAO\s+DE\s+AUTUACAO/.test(text);
+ const hasLegalOwner=/PESSOA\s+JURIDICA[\s\S]{0,110}PROPRIETARIA[\s\S]{0,80}VEICULO/.test(text);
+ const hasOriginTypification=/TIPIFICACAO\s+DA\s+INFRACAO[\s\S]{0,180}ORIGINARIA/.test(text)
+   &&/NAO\s+HA\s+REGISTRO\s+DE\s+INDICACAO/.test(text);
+ return hasNoticeHeader||hasLegalOwner||hasOriginTypification;
+}
+
 function parseIdentificationFine(raw){
  const rawText=String(raw||'');
  const flat=rawText.replace(/[\u00a0\t]+/g,' ').replace(/[|]+/g,' ').replace(/\s+/g,' ').trim();
@@ -1343,9 +1367,10 @@ function parseIdentificationFine(raw){
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
   let org='';
-  const orgLabelRe=/[oó0]rg[aã]o\s+autuador/i;
+  // Tesseract pode omitir um "u" e devolver "Órgão Atuador".
+  const orgLabelRe=/[oó0]rg[aã]o\s+a.{0,2}uador/i;
   const orgHeader=idxRow(orgLabelRe);
-  const orgOtherHeaderRe=/\b(?:IDENTIFICA[CÇ][AÃ]O\s+DA\s+AUTUA[CÇ][AÃ]O|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo)\b/i;
+  const orgOtherHeaderRe=/\b(?:IDENTIFICA[CÇ][AÃ]O\s+DA(?:\s+AUTUA[CÇ][AÃ]O)?|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo)\b/i;
   const orgValueNoiseRe=/\b(?:N[ºo°]?\s*do\s+Auto|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo|UF)\b/i;
   const cleanOrgCandidate=value=>{
     let candidate=clean(value);
