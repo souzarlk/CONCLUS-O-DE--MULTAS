@@ -594,7 +594,7 @@ function extractInfractionDescription(sourceRows,sourceText=''){
     .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
     .filter(Boolean);
   const labelRe=/Descri[cç][aã]o\s+da\s+Infra[cç][aã]o/i;
-  const stopRe=/\b(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+RENAINF|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA|Artigo\s*\(CTB\)|Base\s+Legal|Desdob\.?|Pontua[cç][aã]o|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\))\b/i;
+  const stopRe=/\b(?:Equipamento|Instrumento\s+de\s+Aferi[cç][aã]o|Observa[cç][oõ]es|C[oó]digo\s+(?:RENAINF|(?:da\s+)?Infra[cç][aã]o)|C[oó]d\.?\s*Infra[cç][aã]o|INFORMA[CÇ][OÕ]ES\s+COMPLEMENTARES|OUTRAS\s+OBSERVA[CÇ][OÕ]ES|TIPIFICA[CÇ][AÃ]O\s+DA\s+INFRA[CÇ][AÃ]O\s+ORIGIN[AÁ]RIA|Art(?:igo)?\.?\s*\(CTB\)|Base\s+Legal|Desdob(?:ramento)?\.?|Pontua[cç][aã]o|Data\s+da\s+Expedi[cç][aã]o|Valor\s*\(R\$\)|Identifica[cç][aã]o\s+do\s+Agente|Medi[cç][aã]o\s+Realizada|Limite\s+Regulamentado)\b/i;
   const cleanValue=value=>{
     let candidate=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
     if(!candidate)return '';
