@@ -503,17 +503,16 @@ pdfInput.addEventListener('change',async()=>{
  };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
-   // Neste recorte estreito só existe a célula do código. A primeira leitura
-   // é a leitura normal do Tesseract (PSM 6); aceita apenas um token de 4 dígitos.
-   // Não exige concordância com PSM 11, que estava fazendo o campo ficar vazio.
+   // O OCR pode devolver o número limpo (5002), colar o dígito da borda
+   // (65002) ou separar os algarismos com espaços/quebras de linha.
+   // Aceitar esses três formatos, mas só validar códigos finais NNN-N.
    for(const mode of [6,11,7]){
      const raw=await recognize(region.canvas,'Lendo o número da célula Código da infração…',mode,'0123456789');
-     const tokens=[...String(raw||'').matchAll(/(?:^|\D)(\d{4})(?=\D|$)/g)].map(match=>match[1]);
-     const unique=[...new Set(tokens)];
-     if(unique.length===1){
-       const normalized=normalizeInfractionCode(unique[0]);
-       if(/^\d{3}-\d$/.test(normalized))return normalized;
-     }
+     const tokens=[...String(raw||'').matchAll(/(?:^|\D)(\d(?:\s*\d){3,4})(?=\D|$)/g)]
+       .map(match=>match[1].replace(/\s+/g,''))
+       .filter(token=>token.length===4||/^6\d{4}$/.test(token));
+     const normalized=[...new Set(tokens.map(normalizeInfractionCode).filter(value=>/^\d{3}-\d$/.test(value)))];
+     if(normalized.length===1)return normalized[0];
    }
    return '';
  };
@@ -647,7 +646,9 @@ pdfInput.addEventListener('change',async()=>{
          if(enhanced){enhanced.width=0;enhanced.height=0;}
        }
      }
-     chooseBest();return;
+     chooseBest();
+     if(requiresFocusedMainCode&&focusedInfractionCodeValue)document.getElementById('codInfracao').value=focusedInfractionCodeValue;
+     return;
    }
    if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');
    const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
@@ -745,6 +746,7 @@ pdfInput.addEventListener('change',async()=>{
      }
      chooseBest();
    }
+   if(requiresFocusedMainCode&&focusedInfractionCodeValue)document.getElementById('codInfracao').value=focusedInfractionCodeValue;
  }catch(e){
    parseStatus.className='parse-status error';
    parseStatus.textContent='Não foi possível ler o PDF/imagem: '+(e&&e.message?e.message:'arquivo inválido');
