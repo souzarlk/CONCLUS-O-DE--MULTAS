@@ -1076,14 +1076,44 @@ function parsePenaltyPdf(raw){
    /(M\.?\s*BENZ\/AXOR\s*2036\s*S)/i
  ]);
  if(/^(?:Esp[eé]cie|Tipo|Pa[ií]s|Categoria)(?:\s+(?:Tipo|Pa[ií]s|Categoria))?$/i.test(model))model='';
- // Primeiro procurar o nome do órgão no documento inteiro. A extração por proximidade do rótulo falha quando o PDF organiza o texto em colunas.
- const orgCandidates=[
-   text.match(/\b(DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM(?:\s+DO\s+ESTADO\s+DE\s+S[AÃ]O\s+PAULO)?)\b/i),
-   text.match(/\b(\S.{3,90}?)\s+Órgão\s+Autuador\b/i),
-   text.match(/Órgão\s+Autuador\s*[:.]\s*([^|]{3,90}?)(?=\s+(?:Código|C[oó]digo|Data|Hora|Placa|Munic[ií]pio)\b|$)/i)
- ];
- const org=(()=>{for(const m of orgCandidates){const v=clean(m?.[1]||'');if(v&&!/^(?:Órgão\s+Autuador|Código(?:\s+do\s+Órgão)?|Data|Hora|Placa|Município)$/i.test(v)&&!/(?:Órgão\s+Autuador|Código\s+do\s+Órgão)$/i.test(v))return v;}return '';})();
- // Data/hora da infração: buscar perto do bloco "Município da Infração",
+ // "Órgão Autuador" é o rótulo da coluna; o fornecedor é o conteúdo da célula logo abaixo.
+  // A mesma regra da modalidade Apenas Identificação é aplicada às multas com boleto.
+  let org='';
+  const orgLabelRe=/[oó0]rg[aã]o\s+autuador/i;
+  const orgHeader=sourceRows.findIndex(row=>orgLabelRe.test(row));
+  const orgOtherHeaderRe=/\b(?:IDENTIFICA[CÇ][AÃ]O\s+DA\s+AUTUA[CÇ][AÃ]O|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo)\b/i;
+  const orgValueNoiseRe=/\b(?:N[ºo°]?\s*do\s+Auto|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Data\s+da\s+Postagem|Placa|Munic[ií]pio|Marca\s*\/\s*Modelo|Esp[eé]cie\s*\/\s*Tipo|UF)\b/i;
+  const cleanOrgCandidate=value=>{
+    let candidate=clean(value);
+    const label=orgLabelRe.exec(candidate);
+    if(label)candidate=candidate.slice(label.index+label[0].length);
+    const otherHeader=orgOtherHeaderRe.exec(candidate);
+    if(otherHeader)candidate=candidate.slice(0,otherHeader.index);
+    const dataValue=/(?:\b[A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b|\b\d{3,}\b|\b\d{2}[/.]\d{2}[/.]\d{4}\b|\b\d{2}:\d{2}\b)/i.exec(candidate);
+    if(dataValue)candidate=candidate.slice(0,dataValue.index);
+    candidate=candidate.replace(/^[\s:;|–-]+|[\s;|–-]+$/g,'').replace(/\s+/g,' ').trim();
+    if(!candidate||candidate.length<3||!/[A-ZÀ-Ü]{2}/i.test(candidate))return '';
+    if(/^(?:Órg[aã]o\s+Autuador|Identifica[cç][aã]o\s+da\s+Autua[cç][aã]o|C[oó0]digo\s+do\s+[oó0]rg[aã]o|Auto\s+(?:de|da)\s+Infra[cç][aã]o|Data\s+da\s+Postagem)$/i.test(candidate))return '';
+    if(orgValueNoiseRe.test(candidate))return '';
+    return candidate;
+  };
+  if(orgHeader>=0){
+    const headerRow=sourceRows[orgHeader];
+    const label=orgLabelRe.exec(headerRow);
+    const sameRowValue=label?cleanOrgCandidate(headerRow.slice(label.index+label[0].length)):'';
+    if(sameRowValue)org=sameRowValue;
+    for(let i=orgHeader+1;i<Math.min(sourceRows.length,orgHeader+7)&&!org;i++){
+      let candidate=cleanOrgCandidate(sourceRows[i]);
+      if(!candidate)continue;
+      for(let j=i+1;j<Math.min(sourceRows.length,orgHeader+9);j++){
+        const continuation=cleanOrgCandidate(sourceRows[j]);
+        if(!continuation||!/^(?:DE|DA|DO|DAS|DOS|E)\b/i.test(continuation))break;
+        candidate=clean(candidate+' '+continuation);
+      }
+      org=candidate;
+    }
+  }
+  // Data/hora da infração: buscar perto do bloco "Município da Infração",
  // evitando confundir a data da postagem ou as datas da tabela de penalidade.
  let infDate='';
  const idxInf=upper.search(/MUNIC[IÍ]PIO\s+DA\s+INFRA[CÇ][AÃ]O/i);
