@@ -435,7 +435,8 @@ pdfInput.addEventListener('change',async()=>{
    }
    // O código lido diretamente da célula isolada sempre vence qualquer número
    // encontrado pelo OCR geral ou em outras tabelas da notificação.
-   if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
+   if(currentFineType==='identificacao')merged.codInfracao=focusedInfractionCodeValue||'';
+   else if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
    if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
