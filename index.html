@@ -486,7 +486,8 @@ pdfInput.addEventListener('change',async()=>{
    // Leituras independentes de cada célula: a faixa da empresa inclui o valor
    // abaixo de "Nome", e as demais cobrem descrição/código/pontuação nos dois layouts.
    const regions=[
-     {name:'Empresa',owner:true,top:.20,bottom:.35,mode:4},
+     {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
+     {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
      {name:'Histórico da multa',top:.32,bottom:.455,mode:6},
      {name:'Histórico da multa - alternativa',top:.32,bottom:.455,mode:11},
      {name:'Código da infração',top:.29,bottom:.355,mode:11},
@@ -523,7 +524,7 @@ pdfInput.addEventListener('change',async()=>{
  const recognizeFocusedPoints=async(sourceCanvas)=>{
    if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
    const ratio=sourceCanvas.width/sourceCanvas.height;
-   const region=ratio<1?{x:0,y:.36,w:1,h:.23}:{x:0,y:.32,w:1,h:.28};
+   const region=ratio<1?{x:0,y:.40,w:1,h:.10}:{x:0,y:.40,w:1,h:.10};
    const sx=Math.max(0,Math.floor(sourceCanvas.width*region.x));
    const sy=Math.max(0,Math.floor(sourceCanvas.height*region.y));
    const sw=Math.max(1,Math.min(sourceCanvas.width-sx,Math.floor(sourceCanvas.width*region.w)));
