@@ -340,6 +340,8 @@ pdfInput.addEventListener('change',async()=>{
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
  let focusedInfractionCodeValue='';
+ let codeContextVerified=false;
+ let codeContextChecked=false;
  const targetIds=currentFineType==='identificacao'
    ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
@@ -415,13 +417,12 @@ pdfInput.addEventListener('change',async()=>{
    if(String(ocrText||'').trim())parsePenaltyPdf(ocrText);
    candidates.push({values:takeSnapshot(),text:String(ocrText||'')});
    const missing=chooseBest();
-   // Nos modelos de identificação, a leitura posicional do campo principal é
-   // obrigatória, mesmo quando o OCR da página inteira inventa um código válido.
-   const requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
-   if(requiresFocusedMainCode&&!focusedInfractionCodeValue&&!missing.includes('codInfracao')){
+   // Sempre inspecionar o título + valor da célula principal, mesmo quando o OCR
+   // geral já sugeriu um código válido. Isso impede pular a conferência por engano.
+   if(!codeContextChecked&&!missing.includes('codInfracao')){
      missing.push('codInfracao');
      parseStatus.className='parse-status';
-     parseStatus.textContent='Conferindo diretamente a célula “Código da infração”…';
+     parseStatus.textContent='Conferindo diretamente o título e a célula “Código da infração”…';
    }
    return missing;
  };
@@ -503,7 +504,7 @@ pdfInput.addEventListener('change',async()=>{
    }
  };
  const readFocusedInfractionCode=async region=>{
-   if(!region||!region.canvas)return '';
+   if(!region||!region.canvas||!codeContextVerified)return '';
    // Neste recorte estreito só existe a célula do código. A primeira leitura
    // é a leitura normal do Tesseract (PSM 6); aceita apenas um token de 4 dígitos.
    // Não exige concordância com PSM 11, que estava fazendo o campo ficar vazio.
@@ -520,13 +521,21 @@ pdfInput.addEventListener('change',async()=>{
  };
  const readInfractionCodeFromContext=async region=>{
    if(!region||!region.canvas)return '';
-   const outputs=[];
-   for(const mode of [6,11]){
-     const raw=await recognize(region.canvas,'Lendo o título e o valor da célula Código da infração…',mode);
-     const code=extractInfractionCodeFromCell('__INFRACTION_CODE_CELL__\n'+raw,false);
-     if(code)outputs.push(code);
-     if(outputs.length>=2&&outputs[0]===outputs[1])return outputs[0];
+   for(const mode of [4,6,11]){
+     const raw=await recognize(region.canvas,'Identificando o título e o número do campo Código da infração…',mode);
+     const labelRe=/C[oó0]digo[\s\S]{0,28}(?:infra[cç][aã]o|intra[cç][aã]o)/ig;
+     const labels=[...String(raw||'').matchAll(labelRe)];
+     for(const label of labels){
+       codeContextVerified=true;
+       const tail=String(raw||'').slice(label.index+label[0].length,label.index+label[0].length+220);
+       const number=tail.match(/(?:^|\D)(\d{4})(?=\D|$)/);
+       if(number){
+         const code=normalizeInfractionCode(number[1]);
+         if(/^\d{3}-\d$/.test(code))return code;
+       }
+     }
    }
+   codeContextChecked=true;
    return '';
  };
  const buildIdentificationTargetCrops=source=>{
@@ -536,11 +545,12 @@ pdfInput.addEventListener('change',async()=>{
    const regions=[
      {name:'Empresa',owner:true,top:.20,bottom:.35,mode:6},
      {name:'Empresa - alternativa',owner:true,top:.20,bottom:.35,mode:4},
+     // Primeiro lê título + valor e confirma que é a célula correta.
+     {name:'Código da infração - título e valor',left:.05,right:.61,top:.30,bottom:.39,mode:6,codeContext:true},
      // Recorte físico exato da célula, separado de Desdobramento e Base Legal.
      // Somente o número abaixo do título: exclui o cabeçalho e a coluna Desdob.
      {name:'Código da infração - valor isolado',left:.06,right:.17,top:.34,bottom:.37,mode:6,code:true},
      {name:'Código da infração - valor isolado alternativo',left:.06,right:.17,top:.34,bottom:.37,mode:11,code:true},
-     {name:'Código da infração - título e valor',left:.05,right:.61,top:.30,bottom:.39,mode:6,codeContext:true},
      // Célula isolada: "Código da infração" e seu número logo abaixo.
      {name:'Código da infração - célula',left:.05,right:.46,top:.30,bottom:.37,mode:6},
      {name:'Código da infração - alternativa',left:.05,right:.46,top:.30,bottom:.37,mode:11},
@@ -645,6 +655,7 @@ pdfInput.addEventListener('change',async()=>{
                  if(focusedCode)focusedInfractionCodeValue=focusedCode;
                }else if(region.codeContext){
                  const contextualCode=await readInfractionCodeFromContext(region);
+                 codeContextChecked=true;
                  if(contextualCode)focusedInfractionCodeValue=contextualCode;
                }
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
@@ -731,7 +742,8 @@ pdfInput.addEventListener('change',async()=>{
                if(focusedCode)focusedInfractionCodeValue=focusedCode;
              }else if(region.codeContext){
                const contextualCode=await readInfractionCodeFromContext(region);
-               if(contextualCode)focusedInfractionCodeValue=contextualCode;
+                 codeContextChecked=true;
+                 if(contextualCode)focusedInfractionCodeValue=contextualCode;
              }
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
              missing=addCandidate((region.code||region.codeContext?'__INFRACTION_CODE_CELL__\n':'')+(region.owner?'__OWNER_REGION__\n':'')+regionText);
