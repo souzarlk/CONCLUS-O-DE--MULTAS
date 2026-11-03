@@ -362,6 +362,18 @@ pdfInput.addEventListener('change',async()=>{
      const compact=v.toUpperCase().replace(/\s+/g,'');
      return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
    }
+   if(currentFineType==='identificacao'&&id==='empresa'){
+     const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+     return /\b(?:ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/.test(normalized)
+       &&v.split(/\s+/).filter(Boolean).length>=3
+       &&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=9;
+   }
+   if(currentFineType==='identificacao'&&id==='pontosMulta'){
+     return /^\d{1,2}$/.test(v)&&Number(v)>=0&&Number(v)<=30;
+   }
+   if(currentFineType==='identificacao'&&id==='historicoMulta'){
+     return /^Multa,?\s+por\s+n[aã]o\s+identifica[cç][aã]o\s+do\s+condutor\s+infrator,?\s+imposta\s+[àa]\s+pessoa\s+jur[ií]dica\.?$/i.test(v);
+   }
    if(id==='fornecedor'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
      if(/\b(?:ORGAO AUTUADOR|IDENTIFICACAO DA AUTUACAO|CODIGO DO ORGAO|AUTO DE INFRACAO|DATA DA POSTAGEM)\b/.test(normalized))return false;
@@ -570,7 +582,7 @@ pdfInput.addEventListener('change',async()=>{
            try{
              for(const region of targetCrops){
                const regionText=await recognize(region.canvas,'Leitura focada: '+region.name+'…',region.mode);
-               missing=addCandidate(regionText);
+               missing=addCandidate((region.name==='Empresa'?'__OWNER_REGION__\n':'')+regionText);
              }
            }finally{
              targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
@@ -650,7 +662,7 @@ pdfInput.addEventListener('change',async()=>{
            targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            for(const region of targetCrops){
              const regionText=await recognize(region.canvas,'Leitura focada do PDF: '+region.name+'…',region.mode);
-             missing=addCandidate(regionText);
+             missing=addCandidate((region.name==='Empresa'?'__OWNER_REGION__\n':'')+regionText);
            }
          }finally{
            targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});
@@ -913,78 +925,48 @@ function parseIdentificationFine(raw){
  // Empresa: ler os valores sob o cabeçalho "Nome do Proprietário/Arrendatário".
  // A mesma linha pode conter Órgão Autuador, Código do Órgão e N° do Auto antes do nome.
  let company='';
+ const ownerNoticeIndex=rows.findIndex(row=>/PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA|PROPRIET/i.test(row));
+ const ownerNameIndex=rows.findIndex(row=>/^\s*Nome\s*[:.]?\s*$/i.test(row)||/^\s*Nome\s+(?:do\s+)?Propriet/i.test(row));
  const ownerHeader=idxRow(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?/i);
- const ownerRows=ownerHeader>=0?rows.slice(ownerHeader,Math.min(rows.length,ownerHeader+6)):rows;
- const companyFromOwnerRow=rowValue=>{
-   let row=String(rowValue||'');
-   const label=/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?/i.exec(row);
-   if(label)row=row.slice(label.index+label[0].length);
-   const legal=/\b(ME|LTDA\.?|EPP|EIRELI|S\/?A\.?)\b/i.exec(row);
-   if(!legal)return '';
-   let before=row.slice(0,legal.index);
-   // Se o número do AIT está na mesma linha de valores, o nome começa logo depois dele.
-   const ids=[...before.matchAll(/\b[A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?\b/ig)];
-   if(ids.length){
-     const lastId=ids[ids.length-1];
-     before=before.slice(lastId.index+lastId[0].length);
-   }else{
-     // Alternativa para OCR que perde o AIT, mas mantém o código numérico do órgão autuador.
-     const numericCodes=[...before.matchAll(/\b\d{4,}\b/g)];
-     if(numericCodes.length){
-       const lastCode=numericCodes[numericCodes.length-1];
-       before=before.slice(lastCode.index+lastCode[0].length);
-     }
-   }
-   before=before.replace(/.*\b(?:Órg[aã]o\s+Autuador|CET-SANTOS|Nome\s+do\s+Propriet[aá]rio)\b/i,' ');
-   const name=clean(before+' '+legal[1]);
-   return name.split(/\b(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O)\b/i)[0].trim();
+ const ownerRows=ownerHeader>=0
+   ?rows.slice(ownerHeader,Math.min(rows.length,ownerHeader+6))
+   :ownerNoticeIndex>=0
+     ?rows.slice(ownerNoticeIndex,Math.min(rows.length,ownerNoticeIndex+14))
+     :ownerNameIndex>=0
+       ?rows.slice(ownerNameIndex,Math.min(rows.length,ownerNameIndex+5))
+       :[];
+ const extractLegalCompany=rowValue=>{
+   let candidate=String(rowValue||'');
+   const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
+   if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
+   const suffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
+   if(!suffix)return '';
+   candidate=clean(candidate.slice(0,suffix.index)+' '+suffix[1]);
+   candidate=candidate.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
+   const words=candidate.split(/\s+/).filter(Boolean);
+   const letters=candidate.replace(/[^A-ZÀ-Ü]/gi,'');
+   if(words.length<3||letters.length<9)return '';
+   if(/\b(?:PESSOA|PROPRIET[ÁA]RIA|VE[IÍ]CULO|INFRA[CÇ][AÃ]O|DATA|IDENTIFICA[CÇ][AÃ]O)\b/i.test(candidate))return '';
+   return normalizeCompanyName(candidate);
  };
  for(const row of ownerRows){
-   const candidate=companyFromOwnerRow(row);
-   if(candidate&&candidate.split(/\s+/).length>=3){company=candidate;break;}
+   company=extractLegalCompany(row);
+   if(company)break;
  }
- if(!company){
-   const m=flat.match(/Nome\s+do\s+Propriet[aá]rio(?:\s*\/\s*Arrendat[aá]rio)?\s+(.{5,120}?)(?=\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ|IDENTIFICA[CÇ][AÃ]O\s+DO\s+CONDUTOR)\b)/i);
-   if(m)company=clean(m[1]);
+ if(!company&&ownerRows.length){
+   // "Nome" and the company value often arrive as separate OCR rows.
+   for(let i=0;i<ownerRows.length&&!company;i++){
+     company=extractLegalCompany(ownerRows[i]);
+   }
  }
- company=company.replace(/\s+(?:N[uú]mero\s+de\s+Registro|UF\s*\(CNH\)|CPF\s*\/?\s*CNPJ).*$/i,'').trim();
-  if(!company){
-    const ownerNoticeHeader=rows.findIndex(row=>/PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA/i.test(row));
-    const ownerNoticeRows=ownerNoticeHeader>=0
-      ?rows.slice(ownerNoticeHeader,Math.min(rows.length,ownerNoticeHeader+10))
-      :rows.slice(0,Math.min(rows.length,35));
-    for(const rowValue of ownerNoticeRows){
-      let candidate=String(rowValue||'');
-      const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
-      if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
-      const legalSuffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
-      if(!legalSuffix)continue;
-      candidate=clean(candidate.slice(0,legalSuffix.index)+' '+legalSuffix[1]);
-      candidate=normalizeCompanyName(candidate);
-      if(candidate.split(/\s+/).length>=3&&candidate.replace(/[^A-ZÀ-Ü]/gi,'').length>=9){
-        company=candidate;break;
-      }
-    }
-  }
-  if(!company){
-    const companyRows=rows.slice(0,Math.min(rows.length,55));
-    for(let i=0;i<companyRows.length&&!company;i++){
-      let candidate=String(companyRows[i]||'');
-      const nameLabel=/\bNome\b\s*[:.]?/i.exec(candidate);
-      if(nameLabel)candidate=candidate.slice(nameLabel.index+nameLabel[0].length);
-      const suffix=/\b(ME|EPP|LTDA\.?|EIRELI|S\/?A\.?|SPE)\b/i.exec(candidate);
-      if(!suffix)continue;
-      candidate=clean(candidate.slice(0,suffix.index)+' '+suffix[1])
-        .replace(/^(?:PESSOA\s+JUR[IÍ]DICA|PROPRIET[ÁA]RIA|DO\s+VE[IÍ]CULO|NA\s+DATA\s+DA)\s*/i,'')
-        .trim();
-      const letters=candidate.replace(/[^A-ZÀ-Ü]/gi,'');
-      const words=candidate.split(/\s+/).filter(Boolean);
-      if(words.length>=3&&letters.length>=9&&!/^(?:PESSOA|PROPRIET[ÁA]RIA|VE[IÍ]CULO|INFRA[CÇ][AÃ]O)$/i.test(candidate)){
-        company=normalizeCompanyName(candidate);
-      }
-    }
-  }
-  company=normalizeCompanyName(company);
+ if(!company&&rawText.includes('__OWNER_REGION__')){
+   // The dedicated crop can contain only the legal-name value, without its title.
+   for(const row of rows){
+     company=extractLegalCompany(row);
+     if(company)break;
+   }
+ }
+ company=normalizeCompanyName(company);
  // Fornecedor: "Órgão Autuador" é o título da coluna; o fornecedor é o valor logo abaixo.
   // Não tratar os demais títulos da linha de cabeçalho como se fossem o nome do órgão.
   let org='';
@@ -1180,7 +1162,7 @@ function parseIdentificationFine(raw){
   if(!originInfractionCode&&/\b5002\b/.test(flat)&&/\b5703(?:[-/]\s*0)?\b/.test(flat)){
     originInfractionCode='5703';
   }
-  if(!points){
+  {
     const pointsByOriginCode={'5703':'4'};
     if(pointsByOriginCode[originInfractionCode])points=pointsByOriginCode[originInfractionCode];
   }
