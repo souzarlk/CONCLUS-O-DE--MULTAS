@@ -485,32 +485,32 @@ function extractRoadLocation(sourceRows){
     const tail=tailRe.exec(value);
     const values=cleanText(tail?value.slice(0,tail.index):value);
     // Formato completo: rodovia, quilômetro, metros, sentido e município.
-    let m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(\\d{1,5})\\s+(NORTE|SUL|LESTE|OESTE)\\s+(.+)$/i);
+    let m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
     let road='',km='',city='';
     if(m){
-      road=cleanText(m[1].replace(/\\s+KM$/i,''));
+      road=cleanText(m[1].replace(/\s+KM$/i,''));
       km=cleanText(m[2]);
       city=cleanText(m[5]);
     }else{
       // Algumas versões omitem o sentido ou a coluna de metros.
-      m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(\\d{1,5})\\s+(.+)$/i);
+      m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(\d{1,5})\s+(.+)$/i);
       if(m){
-        road=cleanText(m[1].replace(/\\s+KM$/i,''));
+        road=cleanText(m[1].replace(/\s+KM$/i,''));
         km=cleanText(m[2]);
         city=cleanText(m[4]);
       }else{
-        m=values.match(/^(.+)\\s+(?:KM\\s*)?(\\d{1,5})\\s+(NORTE|SUL|LESTE|OESTE)\\s+(.+)$/i);
+        m=values.match(/^(.+)\s+(?:KM\s*)?(\d{1,5})\s+(NORTE|SUL|LESTE|OESTE)\s+(.+)$/i);
         if(m){
-          road=cleanText(m[1].replace(/\\s+KM$/i,''));
+          road=cleanText(m[1].replace(/\s+KM$/i,''));
           km=cleanText(m[2]);
           city=cleanText(m[4]);
         }
       }
     }
-    city=cleanText(city.replace(/\\b(?:NORTE|SUL|LESTE|OESTE)\\b/ig,' '));
+    city=cleanText(city.replace(/\b(?:NORTE|SUL|LESTE|OESTE)\b/ig,' '));
     road=cleanText(road);
-    km=km.replace(/^KM\\s*/i,'').trim();
-    if(!road||!/^\\d{1,5}$/.test(km)||!city||city.length<3)return null;
+    km=km.replace(/^KM\s*/i,'').trim();
+    if(!road||!/^\d{1,5}$/.test(km)||!city||city.length<3)return null;
     if(/^(?:LOCAL|RODOVIA|KM|METROS|SENTIDO|MUNIC[IÍ]PIO|UF|C[ÓO]DIGO|DATA|HORA)$/i.test(road))return null;
     if(/^(?:UF|C[ÓO]DIGO|DATA|HORA|MUNIC[IÍ]PIO)$/i.test(city))return null;
     return {road,km,municipality:city};
