@@ -530,7 +530,7 @@ pdfInput.addEventListener('change',async()=>{
        pixels.data[i]=value;pixels.data[i+1]=value;pixels.data[i+2]=value;pixels.data[i+3]=255;
      }
      ctx.putImageData(pixels,0,0);
-     return {name:region.name,mode:region.mode,canvas:crop};
+     return {name:region.name,mode:region.mode,canvas:crop,owner:!!region.owner,code:!!region.code};
    });
  };
  const recognizeFocusedPoints=async(sourceCanvas)=>{
