@@ -209,19 +209,18 @@ pdfInput.addEventListener('change',async()=>{
  };
  const fieldUsable=(id,value)=>{
    const v=String(value||'').trim();if(!v)return false;
+   if(['ait','numeroMulta','aitOriginaria'].includes(id)){
+     const compact=v.toUpperCase().replace(/\s+/g,'');
+     return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
+   }
    if(id==='fornecedor'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
      if(/\b(?:ORGAO AUTUADOR|IDENTIFICACAO DA AUTUACAO|CODIGO DO ORGAO|AUTO DE INFRACAO|DATA DA POSTAGEM)\b/.test(normalized))return false;
      return /[A-Z]{3}/.test(normalized);
    }
-   // AIT/N° multa somente aceita um identificador no formato do auto.
-   if(['ait','numeroMulta','aitOriginaria'].includes(id)){
-     const compact=v.toUpperCase().replace(/\s+/g,'');
-     return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
-   }
    if(id==='localMulta'){
-     if(currentFineType==='identificacao')return v.length>=10&&/[A-ZÀ-Ü]{3}/i.test(v);
-     return /\bKM\s+\d{1,5}\b/i.test(v)&&v.split(/\s+/).length>=5;
+     // Exigir o formato solicitado: Local/Rodovia + KM + Município da Infração.
+     return /^.+\bKM\s+\d{1,5}\s+[A-ZÀ-Ü]{3,}/i.test(v);
    }
    return true;
  };
@@ -1568,6 +1567,7 @@ function parsePenaltyPdf(raw){
  // AIT principal, AIT originária e tabela inferior (vencimento, valor integral e valor com desconto).
  // Canonicaliza municípios reconhecidos sem acento.
  municipality=String(municipality||'').replace(/CUBATAO/i,'CUBATÃO').replace(/GUARUJA/i,'GUARUJÁ').replace(/MONGAGUA/i,'MONGAGUÁ').replace(/ITANHAEM/i,'ITANHAÉM').replace(/PERUIBE/i,'PERUÍBE').replace(/SAO VICENTE/i,'SÃO VICENTE').replace(/SAO PAULO/i,'SÃO PAULO');
+  if(routeLocation)municipality=routeLocation.municipality;
  // Aplicar novamente os valores após os fallbacks, para que a tela receba exatamente os dados corrigidos.
  set('empresa',company);
  // Comportamento original: CRC da Costa Transportes Ltda. -> FROTA CRC.
