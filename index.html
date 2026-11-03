@@ -1156,19 +1156,26 @@ function parseIdentificationFine(raw){
  const codeLabelRows=rows.map((row,index)=>({row,index,match:codeLabelRegex.exec(row)})).filter(item=>item.match);
  const readFourDigitCodeAfterLabel=(labelRowIndex,limit=7)=>{
    if(labelRowIndex<0||labelRowIndex>=rows.length)return '';
+   const parseCellCode=value=>{
+     const text=String(value||'').replace(/[–—−]/g,'-');
+     const hyphenated=text.match(/(?:^|\s)(\d{3})\s*-\s*(\d)(?=\s|$)/);
+     if(hyphenated)return hyphenated[1]+'-'+hyphenated[2];
+     const continuous=text.match(/(?:^|\s)(\d{4})(?=\s|$)/);
+     return continuous?continuous[1]:'';
+   };
    const labelMatch=codeLabelRegex.exec(rows[labelRowIndex]);
    if(labelMatch){
      const tail=rows[labelRowIndex].slice(labelMatch.index+labelMatch[0].length);
-     const inSameRow=tail.match(/(?:^|\s)(\d{4})(?=\s|$)/);
-     if(inSameRow)return inSameRow[1];
+     const inSameRow=parseCellCode(tail);
+     if(inSameRow)return inSameRow;
    }
    for(let i=labelRowIndex+1;i<Math.min(rows.length,labelRowIndex+limit+1);i++){
      const row=rows[i];
      if(/OUTRAS\s+OBSERV|SUSPENS[ÃA]O\s+DO\s+DIREITO/i.test(row))break;
-     // Only accept a distinct 4-digit code token; do not take the first four digits
-     // out of a glued 5-digit OCR artifact such as 65002.
-     const tokens=[...row.matchAll(/(?:^|\s)(\d{4})(?=\s|$)/g)];
-     if(tokens.length)return tokens[0][1];
+     // Accept only a complete code token from this cell: 5002 or 500-2.
+     // Never split a glued OCR artifact such as 65002.
+     const value=parseCellCode(row);
+     if(value)return value;
    }
    return '';
  };
