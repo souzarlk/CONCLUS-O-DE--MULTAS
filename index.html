@@ -1331,8 +1331,9 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
  // Origem genérica: localizar rótulos conhecidos em qualquer um dos modelos.
  const genericAnchors={
   empresa:['NOME'],fornecedor:['AUTUADOR'],veiculo:['PLACA'],
+  numeroMulta:['AUTO'],ait:['AUTO'],aitOriginaria:['ORIGINARIA'],
   localMulta:['LOCAL'],dataInfracao:['DATA'],dataVencimento:['VENCIMENTO'],
-  valorLiquido:['INTEGRAL'],descontoValor:['DESCONTO'],pontosMulta:['PONTUACAO']
+  valorLiquido:['INTEGRAL'],descontoValor:['DESCONTO'],prejuizoValor:['VALOR'],pontosMulta:['PONTUACAO'],centroCusto:['NOME']
  };
  for(const [field,terms] of Object.entries(genericAnchors)){
   const found=words.filter(w=>terms.some(t=>ocrToken(w.text).includes(t)));
@@ -1383,7 +1384,7 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
   const start=starts[0];
   if(start){
    const row=words.filter(w=>w.bbox.x0>=start.bbox.x0-9&&w.bbox.x1<labelBox.x0-7
-    &&Math.abs(cy(w)-cy(start))<=25&&/[A-ZÀ-Ü]/i.test(w.text)
+    &&cy(w)>=cy(start)-5&&Math.abs(cy(w)-cy(start))<=25&&/[A-ZÀ-Ü]/i.test(w.text)
     &&!/^(BASE|LEGAL|DESDOB|ARTIGO|DATA|HORA|VALOR|IDENTIFICA)/i.test(ocrToken(w.text)))
     .sort((a,b)=>a.bbox.x0-b.bbox.x0);
    const history=row.map(w=>String(w.text).trim()).join(' ').replace(/\s+/g,' ').trim();
