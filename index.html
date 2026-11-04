@@ -1081,6 +1081,34 @@ pdfInput.addEventListener('change',async()=>{
  }
 });
 
+// ===== Reforço de leitura: tolerância a ruído de OCR em códigos/identificadores =====
+// Mapa de confusões visuais conhecidas do Tesseract (letra parecida com dígito).
+// Só é aplicado a pequenos trechos já ancorados por um rótulo (AIT, Cód. Infração etc.)
+// e apenas quando o trecho já contém pelo menos 2 dígitos reais, para nunca alterar
+// nomes de empresa, histórico ou qualquer outro texto comum por engano.
+const OCR_DIGIT_LOOKALIKE={O:'0',o:'0',Q:'0',D:'0',I:'1',l:'1',L:'1',S:'5',s:'5',B:'8',G:'6',g:'6',Z:'2',z:'2'};
+function fixOcrDigitTokens(str){
+  return String(str||'').replace(/[0-9OoQDIlLSsBGgZz]{3,7}/g,token=>{
+    const digitCount=(token.match(/[0-9]/g)||[]).length;
+    if(digitCount<2)return token;
+    return [...token].map(ch=>OCR_DIGIT_LOOKALIKE[ch]||ch).join('');
+  });
+}
+// Remove o espaço que o OCR às vezes insere dentro de um único identificador
+// alfanumérico (ex.: "AP 123456-7" ou "AP123 456-7"), sem juntar palavras distintas:
+// só age quando os dois lados do espaço já são caracteres alfanuméricos "colados" a dígitos.
+function collapseOcrAlnumGaps(str){
+  return String(str||'').replace(/([A-Z0-9])\s+(?=[0-9])/gi,'$1').replace(/([0-9])\s+(?=[A-Z0-9])/gi,'$1');
+}
+// Localiza o identificador (AIT / N° multa / AIT originária) logo após o rótulo,
+// tolerando os dois ruídos de OCR mais comuns observados nas digitalizações: letra
+// parecida com dígito e espaço inserido no meio do número.
+function findAitNumberRobust(value){
+  const prepared=fixOcrDigitTokens(collapseOcrAlnumGaps(String(value||'')));
+  const m=prepared.match(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
+  return m?m[1].toUpperCase():'';
+}
+
 function normalizeCompanyName(value){
   let name=String(value||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim();
   const compact=name.toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
@@ -1558,7 +1586,7 @@ function extractCodeImmediatelyAfterCodInfractionLabel(sourceRows, sourceText=''
    .filter(Boolean);
  const labelRe=/C[oó0]d(?:igo)?\.?\s*(?:d[aeo]\s*)?Infra[cç][aã]o/i;
  const parse=value=>{
-   const s=String(value||'').replace(/[–—−]/g,'-').trim();
+   const s=fixOcrDigitTokens(String(value||'').replace(/[–—−]/g,'-').trim());
    let m=s.match(/(?:^|\D)(\d{3})\s*-\s*(\d)(?=$|\D)/);
    if(m)return m[1]+'-'+m[2];
    m=s.match(/(?:^|\D)(\d{4})(?=$|\D)/);
@@ -1764,10 +1792,7 @@ function parseIdentificationFine(raw){
  // O AIT é o identificador que vem DEPOIS do título "Auto de Infração".
   // Não devolver o título nem procurar um número distante em outra parte do documento.
   const aitTitleRe=/(?:T\s*)?A[uú]t[o0]\s+d[e3a]{1,2}\s+Infra[cç]?[aã]o/i;
-  const findAitNumber=value=>{
-    const m=String(value||'').match(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
-    return m?clean(m[1]):'';
-  };
+  const findAitNumber=value=>clean(findAitNumberRobust(value));
   let ait='';
   for(let i=0;i<rows.length&&!ait;i++){
     const label=aitTitleRe.exec(rows[i]);
@@ -1796,16 +1821,17 @@ function parseIdentificationFine(raw){
  const lastAutoLabel=autoLabelMatches[autoLabelMatches.length-1]||null;
  const autoHeaderRow=(()=>{for(let i=rows.length-1;i>=0;i--)if(/\bN\s*[º°o]\s*do\s+Auto\b/i.test(rows[i])&&!/Auto\s+de\s+Infra[cç][aã]o/i.test(rows[i]))return i;return -1;})();
  const autoTokenRe=/\b([A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?)\b/ig;
+ const prepAit=str=>fixOcrDigitTokens(collapseOcrAlnumGaps(String(str||'')));
  if(autoHeaderRow>=0){
-   const sameRow=rows[autoHeaderRow].match(/\bN\s*[º°o]\s*do\s+Auto\b[\s:.-]*([A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?)/i);
+   const sameRow=prepAit(rows[autoHeaderRow]).match(/\bN\s*[º°o]\s*do\s+Auto\b[\s:.-]*([A-Z]{1,4}[A-Z0-9]*\d{5,}(?:[-/]\d{1,2})?)/i);
    if(sameRow)multaNumber=sameRow[1];
    for(let i=autoHeaderRow+1;!multaNumber&&i<Math.min(rows.length,autoHeaderRow+5);i++){
-     const tokens=[...rows[i].matchAll(autoTokenRe)];
+     const tokens=[...prepAit(rows[i]).matchAll(autoTokenRe)];
      if(tokens.length)multaNumber=tokens[0][1];
    }
  }
  if(!multaNumber&&lastAutoLabel){
-   const lowerDeclaration=flat.slice(lastAutoLabel.index+lastAutoLabel[0].length,lastAutoLabel.index+lastAutoLabel[0].length+1100);
+   const lowerDeclaration=prepAit(flat.slice(lastAutoLabel.index+lastAutoLabel[0].length,lastAutoLabel.index+lastAutoLabel[0].length+1100));
    const tokens=[...lowerDeclaration.matchAll(autoTokenRe)];
    if(tokens.length)multaNumber=tokens[0][1];
  }
@@ -1815,7 +1841,7 @@ function parseIdentificationFine(raw){
  if(!origin){
    const originIdx=idxRow(/originada\s+do\s+Auto\s+de\s+Infra[cç][aã]o/i);
    for(let i=Math.max(0,originIdx);originIdx>=0&&i<Math.min(rows.length,originIdx+4);i++){
-     const m=rows[i].match(/\b([A-Z]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
+     const m=fixOcrDigitTokens(collapseOcrAlnumGaps(rows[i])).match(/\b([A-Z]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
      if(m&&m[1].toUpperCase()!==ait){origin=m[1].toUpperCase();break;}
    }
  }
@@ -2206,10 +2232,7 @@ function parsePenaltyPdf(raw){
  // O AIT é o identificador que aparece DEPOIS do título "Auto de Infração".
   // Procurar na mesma linha e, se necessário, nas linhas logo seguintes.
   const aitTitleRe=/(?:T\s*)?A[uú]t[o0]\s+d[e3a]{1,2}\s+Infra[cç]?[aã]o/i;
-  const findAitNumber=value=>{
-    const m=String(value||'').match(/\b([A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?)\b/i);
-    return m?clean(m[1]).toUpperCase():'';
-  };
+  const findAitNumber=value=>clean(findAitNumberRobust(value));
   let ait='';
   for(let i=0;i<sourceRows.length&&!ait;i++){
     const label=aitTitleRe.exec(sourceRows[i]);
@@ -2237,6 +2260,8 @@ function parsePenaltyPdf(raw){
    /Auto\s+(?:de|da)\s+Infração\s+Originária\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i,
    /Auto\s+(?:de|da)\s+Infracao\s+Originaria\s*[:.]?\s*([A-Z0-9][A-Z0-9.\/-]{4,})/i
  ]);
+ // Corrige letra parecida com dígito e espaço colado dentro do identificador originário.
+ if(origin)origin=clean(fixOcrDigitTokens(collapseOcrAlnumGaps(origin)));
  // O campo N° multa usa o mesmo AIT principal indicado no print 5.
  // Não procurar "Auto da Infração" perto de "Data da Postagem": o PDF
  // pode linearizar as colunas e fazer a palavra "Postagem" parecer um valor.
