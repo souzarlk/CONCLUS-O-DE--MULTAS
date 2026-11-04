@@ -926,8 +926,10 @@ pdfInput.addEventListener('change',async()=>{
      }
      return;
    }
+   setExtractionProgress(5,'Abrindo PDF e analisando páginas…');
    if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');
    const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
+   setExtractionProgress(10,'Verificando texto e estrutura do PDF…');
    let pages=[];
    for(let p=1;p<=pdf.numPages;p++){
      const page=await pdf.getPage(p);const tc=await page.getTextContent();
@@ -940,10 +942,12 @@ pdfInput.addEventListener('change',async()=>{
    const raw=pages.join(' | ');
    if(raw.trim())addCandidate(raw);else addCandidate('');
    let missing=chooseBest();
+   setExtractionProgress(16,'Conferindo os campos localizados no documento…');
    // O fluxo de PDF também deve executar a conferência contextual do código,
    // mesmo quando o texto extraído da página parece ter preenchido o campo.
    if(requiresFocusedMainCode&&!focusedInfractionCodeValue&&!missing.includes('codInfracao'))missing.push('codInfracao');
    if(missing.length){
+     setExtractionProgress(20,'Iniciando leitura OCR das páginas…');
      if(!window.Tesseract)throw new Error('Poucos campos foram reconhecidos e a biblioteca de OCR não carregou. Atualize a página e tente novamente.');
      const renderAndRecognize=async(useThreshold,segmentationMode=6)=>{
        const ocrPages=[];
@@ -970,15 +974,19 @@ pdfInput.addEventListener('change',async()=>{
        }
        return ocrPages.join('\n');
      };
+     activeOcrProgressBase=22;
      const firstOcrText=await renderAndRecognize(false);
      missing=addCandidate(firstOcrText);
+     setExtractionProgress(66,'Validando valores reconhecidos e suas posições…');
      if(missing.length){
+       activeOcrProgressBase=62;
        const secondOcrText=await renderAndRecognize(true,6);
        missing=addCandidate(secondOcrText);
      }
      if(missing.length){
        parseStatus.className='parse-status';
        parseStatus.textContent='Tentativa 3: reorganizando a leitura dos blocos de texto…';
+       activeOcrProgressBase=72;
        const thirdOcrText=await renderAndRecognize(false,11);
        missing=addCandidate(thirdOcrText);
      }
@@ -1027,7 +1035,11 @@ pdfInput.addEventListener('change',async()=>{
        }
        if(focusedPointsValue)missing=chooseBest();
      }
-     chooseBest();
+     const finalMissing=chooseBest();
+     setExtractionProgress(100,finalMissing.length?'Extração concluída — confira os campos pendentes':'Extração concluída');
+   }else{
+     const finalMissing=chooseBest();
+     setExtractionProgress(100,finalMissing.length?'Leitura textual concluída — confira os campos pendentes':'Extração concluída');
    }
    if(requiresFocusedMainCode&&focusedInfractionCodeValue)document.getElementById('codInfracao').value=focusedInfractionCodeValue;
  }catch(e){
@@ -1333,6 +1345,7 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
   empresa:['NOME'],fornecedor:['AUTUADOR'],veiculo:['PLACA'],
   numeroMulta:['AUTO'],ait:['AUTO'],aitOriginaria:['ORIGINARIA'],
   localMulta:['LOCAL'],dataInfracao:['DATA'],dataVencimento:['VENCIMENTO'],
+  codInfracao:['COD'],historicoMulta:['PENALIDADE'],ait:['AUTO'],aitOriginaria:['ORIGINARIA'],
   valorLiquido:['INTEGRAL'],descontoValor:['DESCONTO'],prejuizoValor:['VALOR'],pontosMulta:['PONTUACAO'],centroCusto:['NOME']
  };
  for(const [field,terms] of Object.entries(genericAnchors)){
