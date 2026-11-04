@@ -949,21 +949,20 @@ pdfInput.addEventListener('change',async()=>{
        const ocrPages=[];
        for(let p=1;p<=pdf.numPages;p++){
          parseStatus.className='parse-status';
-         parseStatus.textContent=(useThreshold?'Tentativa 2: OCR com contraste reforçado — ':'Reconhecendo página ')+p+' de '+pdf.numPages+'…';
+         parseStatus.textContent=(useThreshold?'Rechecando página com contraste — ':'Reconhecendo página ')+p+' de '+pdf.numPages+'…';
          const page=await pdf.getPage(p);const viewport=page.getViewport({scale:3.6});
          const sourceCanvas=document.createElement('canvas');
          sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
          const ctx=sourceCanvas.getContext('2d');
          await page.render({canvasContext:ctx,viewport}).promise;
+         saveSourcePreviewPage(p-1,sourceCanvas);
          let targetCanvas=sourceCanvas;
          if(useThreshold)targetCanvas=binaryCanvas(sourceCanvas);
          try{
-           if(missing.includes('codInfracao')&&!focusedInfractionCodeValue){
-             const anchoredCode=await readCodeBelowLabelFromCanvas(sourceCanvas);
-             if(anchoredCode)focusedInfractionCodeValue=anchoredCode;
-           }
-           const pageText=await recognize(targetCanvas,(useThreshold?'OCR reforçado da página ':'OCR da página ')+p+'/'+pdf.numPages+'…',segmentationMode);
-           ocrPages.push(pageText);
+           activeOcrProgressBase=Math.min(76,20+(p-1)*12);
+           const pageData=await recognizeDetailed(targetCanvas,(useThreshold?'OCR reforçado da página ':'OCR da página ')+p+'/'+pdf.numPages+'…',segmentationMode);
+           recordOcrVisualData(pageData,p-1,sourceCanvas);
+           ocrPages.push(pageData.text||'');
          }finally{
            if(targetCanvas!==sourceCanvas){targetCanvas.width=0;targetCanvas.height=0;}
            sourceCanvas.width=0;sourceCanvas.height=0;
