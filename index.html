@@ -636,19 +636,31 @@ pdfInput.addEventListener('change',async()=>{
    }
    ctx.putImageData(image,0,0);return canvas;
  };
- const recognize=async(source,message,segmentationMode=6,charWhitelist='')=>{
-   const worker=await Tesseract.createWorker('por',1,{logger:m=>{
-     if(m.status==='recognizing text')parseStatus.textContent=message+' '+Math.round((m.progress||0)*100)+'%';
-   }});
-   try{
-     const parameters={tessedit_pageseg_mode:String(segmentationMode),preserve_interword_spaces:'1',user_defined_dpi:'450'};
-     if(charWhitelist)parameters.tessedit_char_whitelist=charWhitelist;
-     await worker.setParameters(parameters);
-     const result=await worker.recognize(source);
-     return result.data.text||'';
-   }finally{
-     await worker.terminate();
+ let sharedOcrWorker=null,sharedOcrWorkerPromise=null,activeOcrMessage='Preparando leitura',activeOcrProgressBase=12;
+ const getSharedOcrWorker=async()=>{
+   if(!sharedOcrWorkerPromise){
+     sharedOcrWorkerPromise=Tesseract.createWorker('por',1,{logger:m=>{
+       if(m.status==='recognizing text'){
+         const pct=Math.max(0,Math.min(1,Number(m.progress)||0));
+         setExtractionProgress(Math.max(Number(extractionProgressValue.textContent.replace('%',''))||0,activeOcrProgressBase+pct*14),activeOcrMessage+' '+Math.round(pct*100)+'%');
+       }
+     }});
    }
+   sharedOcrWorker=await sharedOcrWorkerPromise;
+   return sharedOcrWorker;
+ };
+ const recognizeDetailed=async(source,message,segmentationMode=6,charWhitelist='')=>{
+   activeOcrMessage=message||'Reconhecendo documento';
+   const worker=await getSharedOcrWorker();
+   const parameters={tessedit_pageseg_mode:String(segmentationMode),preserve_interword_spaces:'1',user_defined_dpi:'450'};
+   if(charWhitelist)parameters.tessedit_char_whitelist=charWhitelist;
+   await worker.setParameters(parameters);
+   const result=await worker.recognize(source);
+   return result.data||{};
+ };
+ const recognize=async(source,message,segmentationMode=6,charWhitelist='')=>{
+   const data=await recognizeDetailed(source,message,segmentationMode,charWhitelist);
+   return data.text||'';
  };
  const readCodeBelowLabelFromCanvas=async sourceCanvas=>{
    if(!sourceCanvas||!sourceCanvas.width||!sourceCanvas.height)return '';
@@ -665,10 +677,9 @@ pdfInput.addEventListener('change',async()=>{
      if(spaced.length===1)return spaced[0];
      return '';
    };
-   const worker=await Tesseract.createWorker('por',1,{logger:m=>{
-     if(m.status==='recognizing text')parseStatus.textContent='Localizando “Cód. Infração” e lendo o valor logo abaixo… '+Math.round((m.progress||0)*100)+'%';
-   }});
+   const worker=await getSharedOcrWorker();
    try{
+     activeOcrMessage='Localizando “Cód. Infração” e lendo o valor logo abaixo…';
      await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1',user_defined_dpi:'450'});
      const pageResult=await worker.recognize(sourceCanvas);
      const pageText=pageResult.data.text||'';
@@ -728,9 +739,7 @@ pdfInput.addEventListener('change',async()=>{
        }finally{crop.width=0;crop.height=0;}
      }
      return '';
-   }finally{
-     await worker.terminate();
-   }
+   }finally{}
  };
  const readFocusedInfractionCode=async region=>{
    if(!region||!region.canvas)return '';
@@ -997,6 +1006,12 @@ pdfInput.addEventListener('change',async()=>{
  }catch(e){
    parseStatus.className='parse-status error';
    parseStatus.textContent='Não foi possível ler o PDF/imagem: '+(e&&e.message?e.message:'arquivo inválido');
+   setExtractionProgress(100,'Extração finalizada com erro');
+ }finally{
+   if(sharedOcrWorkerPromise){
+     try{const worker=sharedOcrWorker||await sharedOcrWorkerPromise;await worker.terminate();}catch(e){}
+     sharedOcrWorker=null;sharedOcrWorkerPromise=null;
+   }
  }
 });
 
