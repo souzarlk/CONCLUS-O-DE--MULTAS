@@ -151,10 +151,44 @@ body[data-theme="light"] .theme-toggle{
 .status.in-development:before{background:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.16),0 0 11px rgba(250,204,21,.42)}
 body[data-theme="light"] .type.available .status.in-development{color:#9a6700}
 body[data-theme="light"] .type.available .status.in-development:before{background:#d69e00;box-shadow:0 0 0 3px rgba(214,158,0,.14),0 0 9px rgba(214,158,0,.25)}
+
+/* Indicador de progresso da extração */
+.extract-progress{position:fixed;top:14px;right:16px;z-index:1000;width:min(280px,calc(100vw - 32px));padding:10px 12px;border:1px solid rgba(255,255,255,.18);border-radius:13px;background:rgba(12,13,17,.88);backdrop-filter:blur(14px);box-shadow:0 8px 28px #0006;display:none}
+.extract-progress.active{display:block}
+.extract-progress-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px;color:#fff;font-size:10px;font-weight:800;letter-spacing:1px}
+.extract-progress-head b{font-size:13px;letter-spacing:0;font-variant-numeric:tabular-nums}
+.extract-progress-track{height:7px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.16)}
+.extract-progress-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#ff003c,#ff8a00,#ffeb00,#00e676,#00c8ff,#7c4dff,#ff00a8,#ff003c);background-size:300% 100%;animation:rgbSweep 2.2s linear infinite;transition:width .2s ease}
+@keyframes rgbSweep{0%{background-position:0% 50%;filter:hue-rotate(0deg)}100%{background-position:100% 50%;filter:hue-rotate(360deg)}}
+.extract-progress-detail{display:block;margin-top:6px;color:#c8cad2;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field-source-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:max-content;max-width:100%;margin-top:7px;padding:6px 9px;border:1px solid rgba(227,6,19,.48);border-radius:8px;background:rgba(227,6,19,.10);color:#ff6972;font-size:10px;font-weight:750;cursor:pointer;transition:background .18s,border-color .18s}
+.field-source-btn:hover{background:rgba(227,6,19,.2);border-color:#ff5963}
+.field-source-btn:focus-visible{outline:2px solid #ff6972;outline-offset:2px}
+body[data-theme="light"] .field-source-btn{color:#fff;border-color:rgba(255,255,255,.48);background:rgba(255,255,255,.12)}
+.field-source-btn svg{width:13px;height:13px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8}
+.source-viewer{position:fixed;inset:0;z-index:1200;display:none;place-items:center;padding:20px;background:rgba(0,0,0,.82);backdrop-filter:blur(8px)}
+.source-viewer.open{display:grid}
+.source-dialog{width:min(100%,1100px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:#111318;box-shadow:0 24px 80px #000b}
+.source-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid #ffffff1a}
+.source-dialog-title{font-size:13px;font-weight:800;color:#fff}
+.source-dialog-note{font-size:11px;color:#b9bbc4;margin-top:3px}
+.source-close{width:34px;height:34px;border:1px solid #ffffff25;border-radius:9px;background:#ffffff0d;color:#fff;font-size:21px;cursor:pointer}
+.source-page-scroll{overflow:auto;padding:14px;background:#24262c;text-align:center}
+.source-page-wrap{display:inline-block;position:relative;max-width:100%;line-height:0}
+.source-page-img{display:block;width:auto;height:auto;max-width:100%;max-height:72vh;object-fit:contain;box-shadow:0 8px 30px #0008}
+.source-highlight{position:absolute;display:none;border:3px solid #ff001e;background:rgba(255,0,30,.10);box-shadow:0 0 0 9999px rgba(0,0,0,.04),0 0 18px rgba(255,0,30,.75);border-radius:3px;pointer-events:none}
+.source-no-region{display:none;padding:12px 16px;color:#ffb2b8;font-size:12px;border-top:1px solid #ffffff1a}
+@media(max-width:650px){.extract-progress{top:8px;right:8px;width:190px}.source-viewer{padding:8px}.source-dialog{max-height:96vh}.source-page-img{max-height:76vh}}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}</script>
 </head>
 <body>
+<div class="extract-progress" id="extractProgress" role="status" aria-live="polite">
+  <div class="extract-progress-head"><span>PROGRESSO DA EXTRAÇÃO</span><b id="extractProgressValue">0%</b></div>
+  <div class="extract-progress-track"><div class="extract-progress-fill" id="extractProgressFill"></div></div>
+  <span class="extract-progress-detail" id="extractProgressDetail">Aguardando arquivo</span>
+</div>
 <div class="ambient-bg" aria-hidden="true">
   <canvas class="matrix" id="matrix"></canvas>
   <div class="glow g1"></div>
@@ -270,6 +304,17 @@ body[data-theme="light"] .type.available .status.in-development:before{backgroun
 <div class="footer"><strong>COSTALOG</strong> · Conectamos destinos. Movimentamos resultados.</div>
 </div>
 </main>
+<div class="source-viewer" id="sourceViewer" aria-hidden="true">
+  <div class="source-dialog" role="dialog" aria-modal="true" aria-labelledby="sourceViewerTitle">
+    <div class="source-dialog-head">
+      <div><div class="source-dialog-title" id="sourceViewerTitle">Origem da informação na multa</div><div class="source-dialog-note" id="sourceViewerNote">Área destacada em vermelho</div></div>
+      <button class="source-close" id="sourceViewerClose" type="button" aria-label="Fechar visualização">×</button>
+    </div>
+    <div class="source-page-scroll"><div class="source-page-wrap"><img class="source-page-img" id="sourceViewerImage" alt="Página da multa anexada"><div class="source-highlight" id="sourceViewerHighlight"></div></div></div>
+    <div class="source-no-region" id="sourceViewerNoRegion"></div>
+  </div>
+</div>
+
 <script>
 (()=>{const body=document.body,themeToggle=document.getElementById('themeToggle'),themeLabel=document.getElementById('themeLabel'),themeIcon=document.getElementById('themeIcon');function setTheme(theme){body.dataset.theme=theme;const dark=theme==='dark';themeLabel.textContent=dark?'Tema claro':'Tema escuro';themeToggle.setAttribute('aria-label',dark?'Mudar para tema claro':'Mudar para tema escuro');themeIcon.innerHTML=dark?'<path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>':'<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"/><circle cx="12" cy="12" r="4"/>';};setTheme('dark');themeToggle.addEventListener('click',()=>setTheme(body.dataset.theme==='dark'?'light':'dark'));const home=document.getElementById('home'),detail=document.getElementById('detail'),toast=document.getElementById('toast');let currentFineType='boleto';
 function openFineType(type){
