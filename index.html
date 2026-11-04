@@ -1268,6 +1268,107 @@ function normalizeFineHistory(value){
 }
 
 
+
+/* Perfil registrado: DER/SP - penalidade por não indicação do condutor. */
+const FINE_EXTRACTION_TRAINING = [{
+ id:'der-sp-penalty-not-identification-v1',
+ match:/DEPARTAMENTO\s+DE\s+ESTRADAS\s+DE\s+RODAGEM[\s\S]{0,900}NOTIFICA[CÇ][AÃ]O\s+DE\s+IMPOSI[CÇ][AÃ]O[\s\S]{0,250}PENALIDADE/i
+}];
+function ocrToken(value){
+ return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9-]/g,'');
+}
+function ocrCode(value){
+ const raw=String(value||'').replace(/[–—−]/g,'-').replace(/[^0-9-]/g,'');
+ let m=raw.match(/^(\d{3})-?(\d)$/);
+ if(m)return m[1]+'-'+m[2];
+ m=raw.match(/^6(\d{4})$/);
+ if(m)return m[1].slice(0,3)+'-'+m[1].slice(3);
+ return '';
+}
+function ocrRegion(items,pageIndex,pageWidth,pageHeight,note){
+ const a=(items||[]).filter(w=>w&&w.bbox);
+ if(!a.length)return null;
+ const x=Math.max(0,Math.floor(Math.min(...a.map(w=>w.bbox.x0))-9));
+ const y=Math.max(0,Math.floor(Math.min(...a.map(w=>w.bbox.y0))-7));
+ const r=Math.min(pageWidth,Math.ceil(Math.max(...a.map(w=>w.bbox.x1))+9));
+ const b=Math.min(pageHeight,Math.ceil(Math.max(...a.map(w=>w.bbox.y1))+7));
+ return r>x&&b>y?{pageIndex,x,y,width:r-x,height:b-y,note}:null;
+}
+function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
+ const words=(data&&data.words||[]).filter(w=>w&&w.text&&w.bbox);
+ const text=String(data&&data.text||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+ const profile=FINE_EXTRACTION_TRAINING.find(p=>p.match.test(text));
+ const values={},regions={};
+ if(!words.length)return {profile:profile?profile.id:'',values,regions};
+ const cy=w=>(w.bbox.y0+w.bbox.y1)/2;
+ // Origem genérica: localizar rótulos conhecidos em qualquer um dos modelos.
+ const genericAnchors={
+  empresa:['NOME'],fornecedor:['AUTUADOR'],veiculo:['PLACA'],
+  localMulta:['LOCAL'],dataInfracao:['DATA'],dataVencimento:['VENCIMENTO'],
+  valorLiquido:['INTEGRAL'],descontoValor:['DESCONTO'],pontosMulta:['PONTUACAO']
+ };
+ for(const [field,terms] of Object.entries(genericAnchors)){
+  const found=words.filter(w=>terms.some(t=>ocrToken(w.text).includes(t)));
+  const anchor=found[found.length-1];
+  if(!anchor)continue;
+  const nearby=words.filter(w=>w.bbox.x1>=anchor.bbox.x0-8&&w.bbox.x0<=anchor.bbox.x1+320
+   &&cy(w)>=anchor.bbox.y0-8&&cy(w)<=anchor.bbox.y1+70);
+  const region=ocrRegion([anchor,...nearby],pageIndex,pageWidth,pageHeight,'Rótulo e valor próximo de '+terms[0]);
+  if(region)regions[field]=region;
+ }
+ if(!profile)return {profile:'',values,regions};
+ // O campo correto é o cabeçalho curto "Cód." seguido de "Infração".
+ const codeLabels=[];
+ for(let i=0;i<words.length;i++){
+  const t=ocrToken(words[i].text);
+  if(t.includes('CODINFRACAO')){codeLabels.push({items:[words[i]],box:words[i].bbox,short:true});continue;}
+  if(t!=='COD'&&t!=='CODIGO')continue;
+  for(let j=i+1;j<Math.min(words.length,i+5);j++){
+   const a=words[i].bbox,b=words[j].bbox;
+   if(!a||!b||Math.abs(cy(words[i])-cy(words[j]))>Math.max(a.y1-a.y0,b.y1-b.y0)*1.7+8)continue;
+   const n=ocrToken(words[j].text);
+   if(n==='DA'||n==='DE'||n==='DO')continue;
+   if(n.includes('INFRACAO'))codeLabels.push({items:[words[i],words[j]],box:{x0:Math.min(a.x0,b.x0),y0:Math.min(a.y0,b.y0),x1:Math.max(a.x1,b.x1),y1:Math.max(a.y1,b.y1)},short:t==='COD'});
+   break;
+  }
+ }
+ codeLabels.sort((a,b)=>(Number(b.short)-Number(a.short))||(b.box.y0-a.box.y0));
+ let picked=null,codeLabel=null,code='';
+ for(const label of codeLabels){
+  const b=label.box,h=Math.max(12,b.y1-b.y0);
+  const matches=words.map(w=>({w,value:ocrCode(w.text)})).filter(o=>{
+   if(!o.value)return false;
+   const q=o.w.bbox,x=(q.x0+q.x1)/2,y=cy(o.w);
+   return x>=b.x0-35&&x<=b.x1+Math.max(100,h*5)&&y>=(b.y0+b.y1)/2-4&&y<=b.y1+Math.max(65,h*2.2);
+  }).sort((a,b2)=>Math.abs(cy(a.w)-(b.y1+h*.45))+Math.abs((a.w.bbox.x0+a.w.bbox.x1)/2-(b.x0+b.x1)/2)*.12
+       -(Math.abs(cy(b2.w)-(b.y1+h*.45))+Math.abs((b2.w.bbox.x0+b2.w.bbox.x1)/2-(b.x0+b.x1)/2)*.12));
+  if(matches.length){picked=matches[0].w;codeLabel=label;code=matches[0].value;break;}
+ }
+ if(picked&&codeLabel){
+  values.codInfracao=code;
+  regions.codInfracao=ocrRegion([...codeLabel.items,picked],pageIndex,pageWidth,pageHeight,'Célula “Cód. Infração” e código logo abaixo');
+  // A descrição de penalidade está na mesma linha, antes da coluna do código.
+  const labelBox=codeLabel.box,codeY=cy(picked);
+  const starts=words.filter(w=>{
+   const t=ocrToken(w.text),b=w.bbox;
+   return (t==='MULTA'||t==='MUITA')&&b.x0<labelBox.x0-12&&cy(w)>labelBox.y0-3&&cy(w)<codeY+12;
+  }).sort((a,b)=>Math.abs(cy(a)-codeY)-Math.abs(cy(b)-codeY));
+  const start=starts[0];
+  if(start){
+   const row=words.filter(w=>w.bbox.x0>=start.bbox.x0-9&&w.bbox.x1<labelBox.x0-7
+    &&Math.abs(cy(w)-cy(start))<=25&&/[A-ZÀ-Ü]/i.test(w.text)
+    &&!/^(BASE|LEGAL|DESDOB|ARTIGO|DATA|HORA|VALOR|IDENTIFICA)/i.test(ocrToken(w.text)))
+    .sort((a,b)=>a.bbox.x0-b.bbox.x0);
+   const history=row.map(w=>String(w.text).trim()).join(' ').replace(/\s+/g,' ').trim();
+   if(history.length>=16&&(history.match(/[A-ZÀ-Ü]/gi)||[]).length>=12){
+    values.historicoMulta=normalizeFineHistory(history);
+    regions.historicoMulta=ocrRegion(row,pageIndex,pageWidth,pageHeight,'Descrição da penalidade à esquerda da célula “Cód. Infração”');
+   }
+  }
+ }
+ return {profile:profile.id,values,regions};
+}
+
 function extractAnchoredHistory(sourceRows, sourceText=''){
  const rows=(Array.isArray(sourceRows)?sourceRows:[])
    .map(row=>String(row||'').replace(/[\u00a0\t]+/g,' ').replace(/\s+/g,' ').trim())
