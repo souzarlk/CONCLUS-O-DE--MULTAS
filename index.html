@@ -329,12 +329,21 @@ const sourceViewerHighlight=document.getElementById('sourceViewerHighlight');
 const sourceViewerNoRegion=document.getElementById('sourceViewerNoRegion');
 const sourceViewerTitle=document.getElementById('sourceViewerTitle');
 const sourceViewerNote=document.getElementById('sourceViewerNote');
+let extractionProgressEnabled=false;
 function setExtractionProgress(value,detail){
+ if(!extractionProgressEnabled)return;
  const n=Math.max(0,Math.min(100,Math.round(Number(value)||0)));
  if(extractionProgressValue)extractionProgressValue.textContent=n+'%';
  if(extractionProgressFill)extractionProgressFill.style.width=n+'%';
  if(extractionProgressDetail&&detail)extractionProgressDetail.textContent=detail;
  extractionProgress?.classList.add('active');
+}
+function hideExtractionProgress(){
+ extractionProgressEnabled=false;
+ extractionProgress?.classList.remove('active');
+ if(extractionProgressValue)extractionProgressValue.textContent='0%';
+ if(extractionProgressFill)extractionProgressFill.style.width='0%';
+ if(extractionProgressDetail)extractionProgressDetail.textContent='Aguardando arquivo';
 }
 function resetSourcePreview(fileName=''){
  sourcePreviewState.pages=[];
@@ -411,6 +420,7 @@ document.addEventListener('click',event=>{
 });
 
 function openFineType(type){
+  hideExtractionProgress();
   currentFineType=type;
   const isIdentification=type==='identificacao';
   document.getElementById('fieldAit').style.display=isIdentification?'none':'';
@@ -466,7 +476,7 @@ document.getElementById('openPenalty').addEventListener('click',()=>openFineType
 document.getElementById('openIdentification').addEventListener('click',()=>openFineType('identificacao'));
 document.getElementById('openIdentificationNew').addEventListener('click',()=>openFineType('identificacaoNova'));
 document.getElementById('openIdentificationBoleto').addEventListener('click',()=>openFineType('identificacaoBoleto'));
-document.getElementById('backBtn').addEventListener('click',()=>{detail.style.display='none';home.style.display='block';window.scrollTo({top:0,behavior:'smooth'});});
+document.getElementById('backBtn').addEventListener('click',()=>{hideExtractionProgress();detail.style.display='none';home.style.display='block';window.scrollTo({top:0,behavior:'smooth'});});
 const pdfInput=document.getElementById('pdfInput'),choosePdf=document.getElementById('choosePdf'),fileName=document.getElementById('fileName'),parseStatus=document.getElementById('parseStatus');
 choosePdf.addEventListener('click',()=>pdfInput.click());
 const uploadBox=document.getElementById('uploadBox');
@@ -475,6 +485,7 @@ const uploadBox=document.getElementById('uploadBox');
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
 pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
+ extractionProgressEnabled=true;
  resetSourcePreview(file.name);ensureFieldSourceButtons();setExtractionProgress(1,'Preparando o documento anexado…');
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
  // Pontos multa é manual no modo NÃO IDENTIFICAÇÃO: não entra no conjunto de campos do OCR.
