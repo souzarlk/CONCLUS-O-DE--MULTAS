@@ -933,11 +933,38 @@ pdfInput.addEventListener('change',async()=>{
    let pages=[];
    for(let p=1;p<=pdf.numPages;p++){
      const page=await pdf.getPage(p);const tc=await page.getTextContent();
-     const items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));
+     const textItems=tc.items.filter(x=>x.str&&x.str.trim());
+     const items=textItems.map(x=>({text:x.str.trim(),x:Number(x.transform[4])||0,y:Math.round(x.transform[5])}));
      const lines=[];
      for(const item of items){let line=lines.find(l=>Math.abs(l.y-item.y)<=3);if(!line){line={y:item.y,items:[item]};lines.push(line)}else line.items.push(item);}
      lines.sort((a,b)=>b.y-a.y);
-     pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | '));
+     const pageText=lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.text).join(' ')).join(' | ');
+     pages.push(pageText);
+     // PDFs com camada de texto: converter as coordenadas do PDF para caixas sobre a prévia.
+     // PDFs escaneados sem texto são renderizados mais tarde no fluxo OCR.
+     if(textItems.length){
+       const viewport=page.getViewport({scale:2.4});
+       const sourceCanvas=document.createElement('canvas');
+       sourceCanvas.width=Math.ceil(viewport.width);sourceCanvas.height=Math.ceil(viewport.height);
+       try{
+         await page.render({canvasContext:sourceCanvas.getContext('2d'),viewport}).promise;
+         const visualWords=[];
+         for(const item of textItems){
+           const tr=pdfjsLib.Util.transform(viewport.transform,item.transform);
+           const fontHeight=Math.max(7,Math.hypot(tr[2],tr[3]));
+           const itemWidth=Math.max(fontHeight*.45,(Number(item.width)||0)*viewport.scale);
+           const tokens=String(item.str||'').trim().split(/\s+/).filter(Boolean);
+           let cursor=tr[4];
+           const totalChars=Math.max(1,String(item.str||'').length);
+           for(const token of tokens){
+             const width=Math.max(fontHeight*.25,itemWidth*(token.length/totalChars));
+             visualWords.push({text:token,bbox:{x0:cursor,y0:tr[5]-fontHeight,x1:Math.min(sourceCanvas.width,cursor+width),y1:tr[5]},confidence:100});
+             cursor+=width+itemWidth*(1/totalChars);
+           }
+         }
+         recordOcrVisualData({text:pageText,words:visualWords},p-1,sourceCanvas);
+       }finally{sourceCanvas.width=0;sourceCanvas.height=0;}
+     }
    }
    const raw=pages.join(' | ');
    if(raw.trim())addCandidate(raw);else addCandidate('');
