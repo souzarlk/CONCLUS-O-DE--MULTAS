@@ -316,7 +316,7 @@ body[data-theme="light"] .field-source-btn{color:#fff;border-color:rgba(255,255,
 </div>
 
 <script>
-(()=>{const body=document.body,themeToggle=document.getElementById('themeToggle'),themeLabel=document.getElementById('themeLabel'),themeIcon=document.getElementById('themeIcon');function setTheme(theme){body.dataset.theme=theme;const dark=theme==='dark';themeLabel.textContent=dark?'Tema claro':'Tema escuro';themeToggle.setAttribute('aria-label',dark?'Mudar para tema claro':'Mudar para tema escuro');themeIcon.innerHTML=dark?'<path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>':'<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"/><circle cx="12" cy="12" r="4"/>';};setTheme('dark');themeToggle.addEventListener('click',()=>setTheme(body.dataset.theme==='dark'?'light':'dark'));const home=document.getElementById('home'),detail=document.getElementById('detail'),toast=document.getElementById('toast');let currentFineType='boleto';
+(()=>{const body=document.body,themeToggle=document.getElementById('themeToggle'),themeLabel=document.getElementById('themeLabel'),themeIcon=document.getElementById('themeIcon');function setTheme(theme){body.dataset.theme=theme;const dark=theme==='dark';themeLabel.textContent=dark?'Tema claro':'Tema escuro';themeToggle.setAttribute('aria-label',dark?'Mudar para tema claro':'Mudar para tema escuro');themeIcon.innerHTML=dark?'<path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>':'<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"/><circle cx="12" cy="12" r="4"/>';};setTheme('dark');themeToggle.addEventListener('click',()=>setTheme(body.dataset.theme==='dark'?'light':'dark'));const home=document.getElementById('home'),detail=document.getElementById('detail'),toast=document.getElementById('toast');let currentFineType='boleto';const isIdentificationLayout=()=>currentFineType==='identificacao'||currentFineType==='identificacaoNova';
 
 const extractionProgress=document.getElementById('extractProgress');
 const extractionProgressValue=document.getElementById('extractProgressValue');
@@ -423,17 +423,18 @@ function openFineType(type){
   hideExtractionProgress();
   currentFineType=type;
   const isIdentification=type==='identificacao';
+  const isIdentificationLayout=isIdentification||type==='identificacaoNova';
   document.getElementById('fieldAit').style.display=isIdentification?'none':'';
-  document.getElementById('fieldAitOriginaria').style.display=isIdentification?'none':'';
-  document.getElementById('fieldDataVencimento').style.display=isIdentification?'none':'';
+  document.getElementById('fieldAitOriginaria').style.display=isIdentificationLayout?'none':'';
+  document.getElementById('fieldDataVencimento').style.display=isIdentificationLayout?'none':'';
   document.getElementById('fieldPontosMulta').style.display='';
-  document.getElementById('pontosMultaManualTag').style.display='';
-  document.getElementById('pontosMulta').placeholder='Preencher manualmente';
-  document.getElementById('fieldPrejuizoValor').style.display=isIdentification?'none':'';
-  document.getElementById('fieldDescontoValor').style.display=isIdentification?'none':'';
-  document.getElementById('fieldValorLiquido').style.display=isIdentification?'none':'';
-  document.getElementById('valorLiquidoLabel').textContent=isIdentification?'Valor':'Valor líquido';
-  document.getElementById('valorLiquidoHint').textContent=isIdentification
+  document.getElementById('pontosMultaManualTag').style.display=type==='identificacaoNova'?'none':'';
+  document.getElementById('pontosMulta').placeholder=type==='identificacaoNova'?'Será preenchido pelo PDF':'Preencher manualmente';
+  document.getElementById('fieldPrejuizoValor').style.display=isIdentificationLayout?'none':'';
+  document.getElementById('fieldDescontoValor').style.display=isIdentificationLayout?'none':'';
+  document.getElementById('fieldValorLiquido').style.display=isIdentificationLayout?'none':'';
+  document.getElementById('valorLiquidoLabel').textContent=isIdentificationLayout?'Valor':'Valor líquido';
+  document.getElementById('valorLiquidoHint').textContent=isIdentificationLayout
     ?'Valor total indicado em “Valor (R$)”'
     :'Valor Integral';
   const fineTitles={
@@ -446,23 +447,23 @@ function openFineType(type){
   const fineDescriptions={
     boleto:'Anexe a notificação de imposição da penalidade com boleto e confira os campos reconhecidos.',
     identificacao:'Anexe a notificação de autuação. O motorista não é informado neste documento e deve continuar sendo preenchido manualmente.',
-    identificacaoNova:'Anexe o modelo de identificação. Este modo utiliza os mesmos campos e o mesmo fluxo de leitura de “NÃO IDENTIFICAÇÃO COM BOLETO”.',
+    identificacaoNova:'Anexe a notificação de autuação. Este modo utiliza os mesmos campos de “NÃO IDENTIFICAÇÃO”, com pontos extraídos automaticamente e o campo N° AIT.',
     identificacaoBoleto:'Anexe o modelo de identificação com boleto. Este modo utiliza os mesmos campos e o mesmo fluxo de leitura de “NÃO IDENTIFICAÇÃO COM BOLETO”.'
   };
   document.getElementById('selectedFineDescription').textContent=fineDescriptions[type]||fineDescriptions.boleto;
-  document.getElementById('localMultaHint').textContent=type==='identificacao'
+  document.getElementById('localMultaHint').textContent=isIdentificationLayout
     ?'Endereço da infração + município'
     :'Local/Rodovia + KM + Município da infração';
-  document.getElementById('codInfracaoHint').textContent=type==='identificacao'
+  document.getElementById('codInfracaoHint').textContent=isIdentificationLayout
     ?'Campo “Código da Infração” da tipificação principal'
     :'Campo “Cód. Infração” na tipificação da penalidade aplicada';
-  document.getElementById('valorLiquidoHint').textContent=type==='identificacao'
+  document.getElementById('valorLiquidoHint').textContent=isIdentificationLayout
     ?'Campo “Valor (R$)” nas informações complementares'
     :'Valor Integral';
-  document.getElementById('descontoValorHint').textContent=type==='identificacao'
+  document.getElementById('descontoValorHint').textContent=isIdentificationLayout
     ?'Este modelo não informa valor de desconto; considerar R$ 0,00'
     :'Valor integral − valor com desconto';
-  document.getElementById('dataVencimentoHint').textContent=type==='identificacao'
+  document.getElementById('dataVencimentoHint').textContent=isIdentificationLayout
     ?'Data limite para defesa prévia/identificação do condutor'
     :'Na fatura, ao lado de “Valor com desconto”';
   document.getElementById('clearForm').click();
@@ -488,13 +489,17 @@ pdfInput.addEventListener('change',async()=>{
  extractionProgressEnabled=true;
  resetSourcePreview(file.name);ensureFieldSourceButtons();setExtractionProgress(1,'Preparando o documento anexado…');
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
+ if(currentFineType==='identificacaoNova')autoFieldIds.push('pontosMulta');
  // Pontos multa é manual no modo NÃO IDENTIFICAÇÃO: não entra no conjunto de campos do OCR.
  let focusedPointsValue='';
  let focusedInfractionCodeValue='';
  let requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
+ const identificationTargetIds=['empresa','veiculo','fornecedor','codInfracao','numeroMulta','localMulta','dataInfracao','historicoMulta'];
  const targetIds=currentFineType==='identificacao'
-   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','localMulta','dataInfracao','historicoMulta']
-   :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
+   ?identificationTargetIds
+   :currentFineType==='identificacaoNova'
+     ?[...identificationTargetIds,'pontosMulta','ait']
+     :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',pontosMulta:'Pontos multa',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
  const takeSnapshot=()=>Object.fromEntries(autoFieldIds.map(id=>[id,document.getElementById(id)?.value||'']));
@@ -518,13 +523,13 @@ pdfInput.addEventListener('change',async()=>{
      return /^[A-Z0-9]{1,4}\d{5,}(?:[-/]\d{1,2})?$/.test(compact);
    }
    if(id==='codInfracao')return /^\d{3}-\d$/.test(v);
-   if(currentFineType==='identificacao'&&id==='empresa'){
+   if(isIdentificationLayout()&&id==='empresa'){
      const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
      return v.split(/\s+/).filter(Boolean).length>=3
        &&v.replace(/[^A-ZÀ-Ü]/gi,'').length>=9
        &&!/\b(?:PESSOA|PROPRIETARIA|VEICULO|INFRACAO|IDENTIFICACAO|ORGAO AUTUADOR|DEPARTAMENTO DE ESTRADAS)\b/.test(normalized);
    }
-   if(currentFineType==='identificacao'&&id==='pontosMulta'){
+   if(isIdentificationLayout()&&id==='pontosMulta'){
      return /^\d{1,2}$/.test(v)&&Number(v)>=0&&Number(v)<=30;
    }
    if(id==='historicoMulta'){
@@ -539,7 +544,12 @@ pdfInput.addEventListener('change',async()=>{
      return /[A-Z]{3}/.test(normalized);
    }
    if(id==='localMulta'){
-     // Exigir somente "Rodovia KM número Município", sem hora, código ou texto de outras seções.
+     if(isIdentificationLayout()){
+       const normalized=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+       return v.length>=8&&/[A-Z]{3}/.test(normalized)
+         &&!/\b\d{2}:\d{2}\b|AUTO\s+(?:DE|DA)\s+INFRACAO|CODIGO\s+RENAINF|IDENTIFICACAO\s+DO\s+AGENTE/i.test(normalized);
+     }
+     // Nos demais modelos, exigir "Rodovia KM número Município".
      const match=v.match(/^(.+?)\s+KM\s+(\d{1,5})\s+(.+)$/i);
      if(!match)return false;
      const city=match[3].trim();
@@ -629,7 +639,7 @@ pdfInput.addEventListener('change',async()=>{
    if(requiresFocusedMainCode)merged.codInfracao=focusedInfractionCodeValue||normalizeInfractionCode(merged.codInfracao)||'';
    else if(focusedInfractionCodeValue)merged.codInfracao=focusedInfractionCodeValue;
    // A leitura focada na célula Pontuação tem prioridade sobre o OCR da página inteira.
-   if(currentFineType==='identificacao'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
+   if(currentFineType==='identificacaoNova'&&focusedPointsValue&&!fieldUsable('pontosMulta',merged.pontosMulta))merged.pontosMulta=focusedPointsValue;
    // The confirmed automatic mapping is always based on the chosen company.
    merged.centroCusto=/CRC\s+DA\s+COSTA\s+TRANSPORTES\s+(?:ME|LTDA)/i.test(merged.empresa||'')?'FROTA CRC':'';
    restoreSnapshot(merged);
@@ -923,7 +933,7 @@ pdfInput.addEventListener('change',async()=>{
            }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
        }
-       if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
+       if(currentFineType==='identificacaoNova'&&missing.includes('pontosMulta')){
          const points=await recognizeFocusedPoints(sourceCanvas);
          if(points){focusedPointsValue=points;missing=chooseBest();}
        }
@@ -1057,7 +1067,7 @@ pdfInput.addEventListener('change',async()=>{
          }
        }
      }
-     if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
+     if(currentFineType==='identificacaoNova'&&missing.includes('pontosMulta')){
        parseStatus.className='parse-status';
        parseStatus.textContent='Os outros campos foram lidos. Fazendo uma leitura ampliada do campo “Pontos multa”…';
        for(let p=1;p<=pdf.numPages&&!focusedPointsValue;p++){
@@ -2210,7 +2220,7 @@ function parseIdentificationFine(raw){
  set('localMulta',[local,km?'KM '+km:'',municipality].filter(Boolean).join(' ').replace(/\s+/g,' ').toLocaleUpperCase('pt-BR'));
  set('historicoMulta',history);
  set('dataInfracao',infDate);
- if(currentFineType!=='identificacao')set('dataVencimento',due);
+ if(!isIdentificationLayout())set('dataVencimento',due);
  if(amount){
    const formatted=moneyFmt(amount);
    set('valorLiquido',formatted);
@@ -2813,8 +2823,12 @@ function parsePenaltyPdf(raw){
  if(integral&&discounted){const total=moneyNumber(integral);const withDiscount=moneyNumber(discounted);const reduction=total-withDiscount;set('descontoValor',moneyBRL(String(reduction.toFixed(2)).replace('.',',')));set('prejuizoValor',moneyBRL(String((total-reduction).toFixed(2)).replace('.',',')));}
 
  const found=[ait,multa,origin,company,plate,model,org,infDate,due,local,km,municipality,penalty,codInfracao,integral,discounted].filter(Boolean).length;
- const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['codInfracao',codInfracao],['localMulta',currentFineType==='identificacao'?(local&&municipality?[local,municipality].join(' '):''):(local&&km&&municipality?[local,'KM '+km,municipality].join(' '):'')],['historicoMulta',penalty],['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['dataInfracao',infDate]];
- if(currentFineType!=='identificacao')required.push(['ait',ait],['aitOriginaria',origin],['dataVencimento',due]);
+ const required=[['empresa',company],['veiculo',plate],['fornecedor',org],['codInfracao',codInfracao],['localMulta',isIdentificationLayout()?(local&&municipality?[local,municipality].join(' '):''):(local&&km&&municipality?[local,'KM '+km,municipality].join(' '):'')],['historicoMulta',penalty],['dataInfracao',infDate]];
+ if(isIdentificationLayout()){
+   if(currentFineType==='identificacaoNova')required.push(['numeroMulta',multaNumber],['pontosMulta',points],['ait',ait]);
+ }else{
+   required.push(['valorLiquido',integral],['descontoValor',integral&&discounted],['prejuizoValor',integral&&discounted],['ait',ait],['aitOriginaria',origin],['dataVencimento',due]);
+ }
  const missing=required.filter(([id,value])=>!String(value||'').trim()).map(([id])=>id);
  parseStatus.className='parse-status '+(missing.length?'error':'success');
  parseStatus.textContent=missing.length
