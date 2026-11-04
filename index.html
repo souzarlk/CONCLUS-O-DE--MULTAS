@@ -416,9 +416,9 @@ function openFineType(type){
   document.getElementById('fieldAit').style.display=isIdentification?'none':'';
   document.getElementById('fieldAitOriginaria').style.display=isIdentification?'none':'';
   document.getElementById('fieldDataVencimento').style.display=isIdentification?'none':'';
-  document.getElementById('fieldPontosMulta').style.display=isIdentification?'none':'';
-  document.getElementById('pontosMultaManualTag').style.display=isIdentification?'none':'';
-  document.getElementById('pontosMulta').placeholder=isIdentification?'Será preenchido pelo documento':'Preencher manualmente';
+  document.getElementById('fieldPontosMulta').style.display='';
+  document.getElementById('pontosMultaManualTag').style.display='';
+  document.getElementById('pontosMulta').placeholder='Preencher manualmente';
   document.getElementById('fieldPrejuizoValor').style.display=isIdentification?'none':'';
   document.getElementById('fieldDescontoValor').style.display=isIdentification?'none':'';
   document.getElementById('fieldValorLiquido').style.display=isIdentification?'none':'';
@@ -477,12 +477,12 @@ pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
  resetSourcePreview(file.name);ensureFieldSourceButtons();setExtractionProgress(1,'Preparando o documento anexado…');
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
- if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
+ // Pontos multa é manual no modo NÃO IDENTIFICAÇÃO: não entra no conjunto de campos do OCR.
  let focusedPointsValue='';
  let focusedInfractionCodeValue='';
  let requiresFocusedMainCode=['identificacao','identificacaoNova','identificacaoBoleto'].includes(currentFineType);
  const targetIds=currentFineType==='identificacao'
-   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta']
+   ?['empresa','veiculo','fornecedor','codInfracao','numeroMulta','localMulta','dataInfracao','historicoMulta']
    :['empresa','veiculo','fornecedor','codInfracao','localMulta','dataInfracao','ait','aitOriginaria','dataVencimento','historicoMulta'];
  const labels={empresa:'Empresa',veiculo:'Veículo',fornecedor:'Fornecedor',codInfracao:'Cod infração',numeroMulta:'N° multa',valorLiquido:'Valor',pontosMulta:'Pontos multa',localMulta:'Local da multa/sinistro',dataInfracao:'Data da infração',ait:'N° AIT',aitOriginaria:'N° AIT originária',dataVencimento:'Data de vencimento',historicoMulta:'Histórico da multa',descontoValor:'Des. valor',prejuizoValor:'Prejuízo valor'};
  const clearAutoFields=()=>autoFieldIds.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -572,9 +572,8 @@ pdfInput.addEventListener('change',async()=>{
  const activateIdentificationLayout=()=>{
    if(requiresFocusedMainCode)return;
    requiresFocusedMainCode=true;
-   const identificationIds=['empresa','veiculo','fornecedor','codInfracao','numeroMulta','pontosMulta','localMulta','dataInfracao','historicoMulta'];
+   const identificationIds=['empresa','veiculo','fornecedor','codInfracao','numeroMulta','localMulta','dataInfracao','historicoMulta'];
    targetIds.splice(0,targetIds.length,...identificationIds);
-   if(!autoFieldIds.includes('pontosMulta'))autoFieldIds.push('pontosMulta');
  };
  const addCandidate=ocrText=>{
    sourceTexts.push(String(ocrText||''));
@@ -2189,7 +2188,8 @@ function parseIdentificationFine(raw){
  set('veiculo',plate);
  set('fornecedor',org);
  set('codInfracao',code);
- set('pontosMulta',points);
+ // No modo NÃO IDENTIFICAÇÃO, a pontuação deve ser informada manualmente pelo usuário.
+ if(currentFineType!=='identificacao')set('pontosMulta',points);
  set('numeroMulta',multaNumber||ait);
  if(currentFineType!=='identificacao'){
    set('ait',ait);
