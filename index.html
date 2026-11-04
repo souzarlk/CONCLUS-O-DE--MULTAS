@@ -547,6 +547,25 @@ pdfInput.addEventListener('change',async()=>{
    const missing=targetIds.filter(id=>!fieldUsable(id,snapshot[id]));
    return missing;
  };
+ let visualExtraction={profile:'',values:{},regions:{}};
+ const recordOcrVisualData=(data,pageIndex,canvas)=>{
+   if(!canvas||!data)return;
+   saveSourcePreviewPage(pageIndex,canvas);
+   const result=extractVisualAnchorsFromOcr(data,pageIndex,canvas.width,canvas.height);
+   if(result.profile)visualExtraction.profile=result.profile;
+   Object.assign(visualExtraction.values,result.values||{});
+   for(const [field,region] of Object.entries(result.regions||{})){
+     if(region&&(!sourcePreviewState.regions[field]||pageIndex===0||result.profile))setFieldSourceRegion(field,region);
+   }
+   if(result.values?.codInfracao)focusedInfractionCodeValue=result.values.codInfracao;
+ };
+ const applyVisualExtraction=()=>{
+   for(const [id,value] of Object.entries(visualExtraction.values||{})){
+     if(!value)continue;
+     const el=document.getElementById(id);
+     if(el)el.value=String(value).trim();
+   }
+ };
  const candidates=[];const sourceTexts=[];
  const activateIdentificationLayout=()=>{
    if(requiresFocusedMainCode)return;
@@ -563,6 +582,8 @@ pdfInput.addEventListener('change',async()=>{
      if(requiresFocusedMainCode)parseIdentificationFine(ocrText);
      else parsePenaltyPdf(ocrText);
    }
+   // Campos confirmados por posição visual do rótulo/célula têm prioridade sobre texto linear.
+   applyVisualExtraction();
    candidates.push({values:takeSnapshot(),text:String(ocrText||'')});
    const missing=chooseBest();
    // Sempre inspecionar o título + valor da célula principal, mesmo quando o OCR
