@@ -317,6 +317,99 @@ body[data-theme="light"] .field-source-btn{color:#fff;border-color:rgba(255,255,
 
 <script>
 (()=>{const body=document.body,themeToggle=document.getElementById('themeToggle'),themeLabel=document.getElementById('themeLabel'),themeIcon=document.getElementById('themeIcon');function setTheme(theme){body.dataset.theme=theme;const dark=theme==='dark';themeLabel.textContent=dark?'Tema claro':'Tema escuro';themeToggle.setAttribute('aria-label',dark?'Mudar para tema claro':'Mudar para tema escuro');themeIcon.innerHTML=dark?'<path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>':'<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.64 5.64l1.42 1.42M16.94 16.94l1.42 1.42M18.36 5.64l-1.42 1.42M7.06 16.94l-1.42 1.42"/><circle cx="12" cy="12" r="4"/>';};setTheme('dark');themeToggle.addEventListener('click',()=>setTheme(body.dataset.theme==='dark'?'light':'dark'));const home=document.getElementById('home'),detail=document.getElementById('detail'),toast=document.getElementById('toast');let currentFineType='boleto';
+
+const extractionProgress=document.getElementById('extractProgress');
+const extractionProgressValue=document.getElementById('extractProgressValue');
+const extractionProgressFill=document.getElementById('extractProgressFill');
+const extractionProgressDetail=document.getElementById('extractProgressDetail');
+const sourcePreviewState={pages:[],regions:{},filename:''};
+const sourceViewer=document.getElementById('sourceViewer');
+const sourceViewerImage=document.getElementById('sourceViewerImage');
+const sourceViewerHighlight=document.getElementById('sourceViewerHighlight');
+const sourceViewerNoRegion=document.getElementById('sourceViewerNoRegion');
+const sourceViewerTitle=document.getElementById('sourceViewerTitle');
+const sourceViewerNote=document.getElementById('sourceViewerNote');
+function setExtractionProgress(value,detail){
+ const n=Math.max(0,Math.min(100,Math.round(Number(value)||0)));
+ if(extractionProgressValue)extractionProgressValue.textContent=n+'%';
+ if(extractionProgressFill)extractionProgressFill.style.width=n+'%';
+ if(extractionProgressDetail&&detail)extractionProgressDetail.textContent=detail;
+ extractionProgress?.classList.add('active');
+}
+function resetSourcePreview(fileName=''){
+ sourcePreviewState.pages=[];
+ sourcePreviewState.regions={};
+ sourcePreviewState.filename=fileName;
+}
+function saveSourcePreviewPage(pageIndex,canvas){
+ if(!canvas||!canvas.width||!canvas.height)return;
+ try{
+   sourcePreviewState.pages[pageIndex]={src:canvas.toDataURL('image/jpeg',.88),width:canvas.width,height:canvas.height,name:sourcePreviewState.filename};
+ }catch(e){/* Preview é opcional; não interromper a extração. */}
+}
+function setFieldSourceRegion(fieldId,region){
+ if(!fieldId||!region)return;
+ const page=sourcePreviewState.pages[region.pageIndex??0];
+ if(!page||!page.width||!page.height)return;
+ const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+ const x=clamp(region.x/page.width,0,1),y=clamp(region.y/page.height,0,1);
+ const w=clamp(region.width/page.width,0,1-x),h=clamp(region.height/page.height,0,1-y);
+ sourcePreviewState.regions[fieldId]={pageIndex:region.pageIndex??0,x,y,w,h,note:region.note||'Trecho usado na extração'};
+}
+function openSourceForField(fieldId){
+ const region=sourcePreviewState.regions[fieldId]||null;
+ const page=sourcePreviewState.pages[region?.pageIndex??0]||sourcePreviewState.pages[0];
+ if(!page){
+   sourceViewerNoRegion.textContent='A pré-visualização desta multa não está disponível. Anexe o documento novamente para registrar a origem dos campos.';
+   sourceViewerNoRegion.style.display='block';
+   sourceViewerImage.removeAttribute('src');
+   sourceViewerHighlight.style.display='none';
+ }else{
+   sourceViewerNoRegion.style.display=region?'none':'block';
+   sourceViewerNoRegion.textContent=region?'':'O documento foi aberto, mas o leitor não conseguiu registrar uma posição exata para este campo neste modelo. A marcação ficará disponível quando a regra correspondente localizar o rótulo.';
+   sourceViewerTitle.textContent='Origem: '+(document.querySelector('[data-source-field="'+fieldId+'"]')?.dataset.sourceLabel||fieldId);
+   sourceViewerNote.textContent=region?(region.note||'Área de origem destacada em vermelho'):'Página da multa anexada';
+   sourceViewerHighlight.style.display='none';
+   sourceViewerImage.onload=()=>{
+     if(region){
+       sourceViewerHighlight.style.left=(region.x*100)+'%';
+       sourceViewerHighlight.style.top=(region.y*100)+'%';
+       sourceViewerHighlight.style.width=(region.w*100)+'%';
+       sourceViewerHighlight.style.height=(region.h*100)+'%';
+       sourceViewerHighlight.style.display='block';
+     }
+   };
+   sourceViewerImage.src=page.src;
+ }
+ sourceViewer.classList.add('open');
+ sourceViewer.setAttribute('aria-hidden','false');
+}
+function closeSourceViewer(){
+ sourceViewer.classList.remove('open');
+ sourceViewer.setAttribute('aria-hidden','true');
+ sourceViewerImage.onload=null;
+}
+document.getElementById('sourceViewerClose')?.addEventListener('click',closeSourceViewer);
+sourceViewer?.addEventListener('click',event=>{if(event.target===sourceViewer)closeSourceViewer();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeSourceViewer();});
+function ensureFieldSourceButtons(){
+ document.querySelectorAll('#fieldsGrid label').forEach(label=>{
+   const control=label.querySelector('input,textarea');
+   if(!control||!control.id||control.id==='numeroFatura')return;
+   if(label.querySelector('.field-source-btn'))return;
+   const button=document.createElement('button');
+   button.type='button';button.className='field-source-btn';button.dataset.sourceField=control.id;
+   button.dataset.sourceLabel=(label.childNodes[0]?.textContent||control.id).trim();
+   button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z"/><path d="M8 9h8M8 13h5"/><path d="m15 17 2 2 4-5"/></svg> Visualizar origem na multa';
+   label.appendChild(button);
+ });
+}
+ensureFieldSourceButtons();
+document.addEventListener('click',event=>{
+ const button=event.target.closest('.field-source-btn');
+ if(button)openSourceForField(button.dataset.sourceField);
+});
+
 function openFineType(type){
   currentFineType=type;
   const isIdentification=type==='identificacao';
