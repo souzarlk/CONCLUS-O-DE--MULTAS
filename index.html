@@ -1429,7 +1429,7 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
     .sort((a,b)=>a.bbox.x0-b.bbox.x0);
    const history=row.map(w=>String(w.text).trim()).join(' ').replace(/\s+/g,' ').trim();
    if(history.length>=16&&(history.match(/[A-ZÀ-Ü]/gi)||[]).length>=12){
-    values.historicoMulta=normalizeFineHistory(history);
+    values.historicoMulta=normalizeFineHistory(history).toLocaleUpperCase('pt-BR');
     regions.historicoMulta=ocrRegion(row,pageIndex,pageWidth,pageHeight,'Descrição da penalidade à esquerda da célula “Cód. Infração”');
    }
   }
