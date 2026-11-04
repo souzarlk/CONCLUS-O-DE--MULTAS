@@ -474,6 +474,7 @@ const uploadBox=document.getElementById('uploadBox');
 uploadBox.addEventListener('drop',event=>{const files=event.dataTransfer&&event.dataTransfer.files;if(!files||!files.length)return;const file=files[0];if(!(/\.pdf$/i.test(file.name)||/^image\/(jpeg|png)$/i.test(file.type))){parseStatus.className='parse-status error';parseStatus.textContent='Formato não suportado. Anexe um PDF, JPEG ou PNG.';return;}const dt=new DataTransfer();dt.items.add(file);pdfInput.files=dt.files;pdfInput.dispatchEvent(new Event('change',{bubbles:true}));});
 pdfInput.addEventListener('change',async()=>{
  const file=pdfInput.files&&pdfInput.files[0];if(!file)return;
+ resetSourcePreview(file.name);ensureFieldSourceButtons();setExtractionProgress(1,'Preparando o documento anexado…');
  const autoFieldIds=['empresa','veiculo','fornecedor','codInfracao','localMulta','historicoMulta','valorLiquido','descontoValor','prejuizoValor','dataInfracao','ait','numeroMulta','aitOriginaria','dataVencimento','centroCusto'];
  if(currentFineType==='identificacao')autoFieldIds.push('pontosMulta');
  let focusedPointsValue='';
@@ -870,22 +871,28 @@ pdfInput.addEventListener('change',async()=>{
  try{
    if(!window.Tesseract)throw new Error('A biblioteca de leitura não carregou. Atualize a página e tente novamente.');
    if(file.type.startsWith('image/')){
-     const firstText=await recognize(file,'Reconhecendo a imagem…');
-     let missing=addCandidate(firstText);
-     if(missing.length){
-       parseStatus.className='parse-status';parseStatus.textContent='Faltam campos. Tentando uma leitura ampliada e com contraste reforçado…';
-       let bitmap=null,sourceCanvas=null,enhanced=null;
-       try{
-         bitmap=await createImageBitmap(file);
-         const maxDim=Math.max(bitmap.width,bitmap.height);
-         const scale=Math.min(2.2,3800/maxDim);
-         sourceCanvas=document.createElement('canvas');
-         sourceCanvas.width=Math.round(bitmap.width*scale);sourceCanvas.height=Math.round(bitmap.height*scale);
-         sourceCanvas.getContext('2d').drawImage(bitmap,0,0,sourceCanvas.width,sourceCanvas.height);
-         bitmap.close?.();bitmap=null;
+     let bitmap=null,sourceCanvas=null,enhanced=null,missing=[];
+     try{
+       setExtractionProgress(7,'Preparando imagem e escala de leitura…');
+       bitmap=await createImageBitmap(file);
+       const maxDim=Math.max(bitmap.width,bitmap.height);
+       const scale=Math.min(2.2,3800/maxDim);
+       sourceCanvas=document.createElement('canvas');
+       sourceCanvas.width=Math.round(bitmap.width*scale);sourceCanvas.height=Math.round(bitmap.height*scale);
+       sourceCanvas.getContext('2d').drawImage(bitmap,0,0,sourceCanvas.width,sourceCanvas.height);
+       bitmap.close?.();bitmap=null;
+       saveSourcePreviewPage(0,sourceCanvas);
+       activeOcrProgressBase=14;
+       const firstData=await recognizeDetailed(sourceCanvas,'Leitura inicial da imagem…',6);
+       recordOcrVisualData(firstData,0,sourceCanvas);
+       missing=addCandidate(firstData.text||'');
+       if(missing.length){
+         setExtractionProgress(45,'Reforçando contraste e conferindo campos pendentes…');
          enhanced=binaryCanvas(sourceCanvas);
-         const secondText=await recognize(enhanced,'Tentativa 2: OCR da imagem ampliada…');
-         missing=addCandidate(secondText);
+         activeOcrProgressBase=46;
+         const secondData=await recognizeDetailed(enhanced,'OCR ampliado com contraste reforçado…',6);
+         recordOcrVisualData(secondData,0,sourceCanvas);
+         missing=addCandidate(secondData.text||'');
          if(missing.includes('codInfracao')&&!focusedInfractionCodeValue){
            const anchoredCode=await readCodeBelowLabelFromCanvas(sourceCanvas);
            if(anchoredCode){focusedInfractionCodeValue=anchoredCode;missing=chooseBest();}
@@ -894,7 +901,6 @@ pdfInput.addEventListener('change',async()=>{
            const targetCrops=buildIdentificationTargetCrops(sourceCanvas);
            try{
              for(const region of targetCrops){
-               // A célula do código é conferida mesmo quando os outros campos já foram lidos.
                if(!missing.length&&focusedInfractionCodeValue)break;
                if(region.code&&requiresFocusedMainCode){
                  const focusedCode=await readFocusedInfractionCode(region);
@@ -905,18 +911,19 @@ pdfInput.addEventListener('change',async()=>{
              }
            }finally{targetCrops.forEach(region=>{region.canvas.width=0;region.canvas.height=0;});}
          }
-         if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
-           const points=await recognizeFocusedPoints(sourceCanvas);
-           if(points){focusedPointsValue=points;missing=chooseBest();}
-         }
-       }finally{
-         if(bitmap)bitmap.close?.();
-         if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
-         if(enhanced){enhanced.width=0;enhanced.height=0;}
        }
+       if(currentFineType==='identificacao'&&missing.includes('pontosMulta')){
+         const points=await recognizeFocusedPoints(sourceCanvas);
+         if(points){focusedPointsValue=points;missing=chooseBest();}
+       }
+       missing=chooseBest();
+       if(focusedInfractionCodeValue)document.getElementById('codInfracao').value=focusedInfractionCodeValue;
+       setExtractionProgress(100,missing.length?'Extração concluída — confira os campos pendentes':'Extração concluída');
+     }finally{
+       if(bitmap)bitmap.close?.();
+       if(sourceCanvas){sourceCanvas.width=0;sourceCanvas.height=0;}
+       if(enhanced){enhanced.width=0;enhanced.height=0;}
      }
-     chooseBest();
-     if(requiresFocusedMainCode&&focusedInfractionCodeValue)document.getElementById('codInfracao').value=focusedInfractionCodeValue;
      return;
    }
    if(!window.pdfjsLib)throw new Error('A biblioteca de leitura de PDF não carregou. Atualize a página e tente novamente.');
