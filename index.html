@@ -1146,7 +1146,10 @@ function extractRoadLocation(sourceRows){
   const headerRe=/Local\s*\/?\s*(?:Rodovi|Rest|Rodo)/i;
   const headerIndex=rows.findIndex(row=>headerRe.test(row));
   const highwayRe=/\b((?:AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO|BR)\s*[-.]?\s*\d{1,4})\b/i;
-  const stopRe=/\b(?:UF|C[ÓO]DIGO|DATA|HORA|ALINHAMENTO|AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|C[ÓO]DIGO\s+RENAINF|INFORMA[CÇ][AÃ]O\s+IMPORTANTE|MOTIVO\s+DO\s+N[AÃ]O\s+ACATAMENTO)\b/i;
+  // Além dos rótulos de seção, inclui rótulos de outras colunas da tabela (veículo, documento)
+  // que o OCR pode linearizar perto do Município e que, sem isso, passariam no teste de
+  // vogais/consoantes como se fossem nome de cidade (ex.: "Marca" virando a cidade).
+  const stopRe=/\b(?:UF|C[ÓO]DIGO|DATA|HORA|ALINHAMENTO|AUTO\s+(?:DE|DA)\s+INFRA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O\s+DO\s+AGENTE|C[ÓO]DIGO\s+RENAINF|INFORMA[CÇ][AÃ]O\s+IMPORTANTE|MOTIVO\s+DO\s+N[AÃ]O\s+ACATAMENTO|MARCA(?:\s*\/\s*MODELO)?|MODELO|ESP[EÉ]CIE(?:\s*\/\s*TIPO)?|CATEGORIA|COR|PLACA|CHASSI|RENAVAM|CPF(?:\s*\/?\s*CNPJ)?|CNPJ(?:\s*\/?\s*CPF)?|NOME|ENDERE[CÇ]O|CEP|PA[IÍ]S|AGENTE)\b/i;
   const canonicalCity=value=>{
     let city=cleanText(value).toLocaleUpperCase('pt-BR');
     const stop=stopRe.exec(city);
