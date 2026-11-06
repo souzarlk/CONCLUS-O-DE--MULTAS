@@ -219,7 +219,7 @@ body[data-theme="light"] .field-source-btn{color:#fff;border-color:rgba(255,255,
 </article>
 <article class="type available feature-type" aria-labelledby="identificationTypeTitle">
   <div class="type-heading">
-    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
     <h2 id="identificationTypeTitle">NÃO IDENTIFICAÇÃO</h2>
   </div>
   <div class="type-footer">
@@ -229,7 +229,7 @@ body[data-theme="light"] .field-source-btn{color:#fff;border-color:rgba(255,255,
 </article>
 <article class="type available feature-type" aria-labelledby="identificationNewTypeTitle">
   <div class="type-heading">
-    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
+    <span class="type-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg></span>
     <h2 id="identificationNewTypeTitle">IDENTIFICAÇÃO</h2>
   </div>
   <div class="type-footer">
@@ -1427,11 +1427,14 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
  if(!words.length)return {profile:profile?profile.id:'',values,regions};
  const cy=w=>(w.bbox.y0+w.bbox.y1)/2;
  // Origem genérica: localizar rótulos conhecidos em qualquer um dos modelos.
+ // Campos cujo rótulo só aparece uma vez no documento usam a regra simples (última
+ // ocorrência + janela próxima). Campos com rótulo repetido (AIT x AIT Originária,
+ // duas "Data de Vencimento", "Data" ambíguo, Local/Km/Município em 3 colunas)
+ // têm regra própria logo abaixo, porque a regra simples acerta por sorte às vezes
+ // e erra o lugar (ou corta a caixa) em outras — exatamente o relatado.
  const genericAnchors={
   empresa:['NOME'],fornecedor:['AUTUADOR'],veiculo:['PLACA'],
-  numeroMulta:['AUTO'],ait:['AUTO'],aitOriginaria:['ORIGINARIA'],
-  localMulta:['LOCAL'],dataInfracao:['DATA'],dataVencimento:['VENCIMENTO'],
-  codInfracao:['COD'],historicoMulta:['PENALIDADE'],ait:['AUTO'],aitOriginaria:['ORIGINARIA'],
+  codInfracao:['COD'],historicoMulta:['PENALIDADE'],
   valorLiquido:['INTEGRAL'],descontoValor:['DESCONTO'],prejuizoValor:['VALOR'],pontosMulta:['PONTUACAO'],centroCusto:['NOME']
  };
  for(const [field,terms] of Object.entries(genericAnchors)){
@@ -1442,6 +1445,100 @@ function extractVisualAnchorsFromOcr(data,pageIndex,pageWidth,pageHeight){
    &&cy(w)>=anchor.bbox.y0-8&&cy(w)<=anchor.bbox.y1+70);
   const region=ocrRegion([anchor,...nearby],pageIndex,pageWidth,pageHeight,'Rótulo e valor próximo de '+terms[0]);
   if(region)regions[field]=region;
+ }
+ const near=(w,ref,maxDy)=>w&&ref&&Math.abs(cy(w)-cy(ref))<=maxDy;
+ const nextWordsAfter=(index,count)=>words.slice(index+1,index+1+count);
+ // Rótulos de outras colunas que não podem ser confundidos com o valor do campo
+ // buscado, mesmo quando caem dentro da janela geométrica de proximidade.
+ const otherLabelTokens=new Set(['AUTUADOR','ORGAO','CODIGO','POSTAGEM','PLACA','MUNICIPIO','MARCA','MODELO',
+  'ESPECIE','TIPO','PAIS','UF','REGULAMENTADO','LIMITE','MEDICAO','REALIZADA','CONSIDERADO',
+  'IDENTIFICACAO','AGENTE','REGISTRO','RENAINF','INFRAEST','DESDOB','ARTIGO','ALINEA','BASE','LEGAL',
+  'DESCRICAO','TIPIFICACAO','DATA','HORA','VALOR','DESCONTO','RECURSO','VENCIMENTO','LOCAL','RODOVIA',
+  'KM','METROS','SENTIDO','NOME']);
+ const isOtherLabel=w=>otherLabelTokens.has(ocrToken(w.text));
+ // N° AIT e N° AIT Originária: ambos começam com a palavra "AUTO", mas só um dos dois
+ // é seguido por "ORIGINARIA" perto. A primeira ocorrência de "AUTO ... INFRACAO" sem
+ // "ORIGINARIA" nas palavras seguintes é o AIT; a ocorrência (geralmente a última) que
+ // tem "ORIGINARIA" logo depois é o AIT Originária.
+ const autoHits=[];
+ for(let i=0;i<words.length;i++){
+  if(ocrToken(words[i].text)!=='AUTO')continue;
+  const after=nextWordsAfter(i,4).map(w=>ocrToken(w.text));
+  if(!after.some(t=>t.includes('INFRACAO')))continue;
+  autoHits.push({index:i,isOriginaria:after.includes('ORIGINARIA')});
+ }
+ const aitHit=autoHits.find(h=>!h.isOriginaria);
+ const aitOriginariaHit=[...autoHits].reverse().find(h=>h.isOriginaria);
+ const regionForAutoHit=(hit,note)=>{
+  if(!hit)return null;
+  const label=words[hit.index];
+  // A frase do rótulo é "Auto (de|da) Infração"; no máximo as 2 palavras seguintes.
+  const w1=words[hit.index+1],w2=words[hit.index+2];
+  const labelSpan=[];
+  if(w1&&/^(DE|DA)$/.test(ocrToken(w1.text))&&near(w1,label,20)){
+   labelSpan.push(w1);
+   if(w2&&ocrToken(w2.text).includes('INFRACAO')&&near(w2,label,20))labelSpan.push(w2);
+  }
+  const labelEnd=labelSpan.length?labelSpan[labelSpan.length-1]:label;
+  // Primeiro tenta o valor na mesma linha à direita; se não achar nada (caso de
+  // tabela, onde a linha do rótulo só tem outros cabeçalhos), tenta a linha de baixo.
+  const isConnector=w=>/^(?:DE|DA|DO|DAS|DOS|E)$/.test(ocrToken(w.text));
+  const candidates=words.filter(w=>w!==label&&!labelSpan.includes(w)&&!isOtherLabel(w)&&!isConnector(w)
+   &&((w.bbox.x0>=labelEnd.bbox.x1-4&&w.bbox.x0<=labelEnd.bbox.x1+260&&near(w,label,18))
+      ||(w.bbox.y0>=labelEnd.bbox.y1-2&&w.bbox.y0<=labelEnd.bbox.y1+70&&w.bbox.x0>=label.bbox.x0-30&&w.bbox.x0<=label.bbox.x0+200)));
+  return ocrRegion([label,...labelSpan,...candidates],pageIndex,pageWidth,pageHeight,note);
+ };
+ let region=regionForAutoHit(aitHit,'Rótulo "Auto de Infração" e valor ao lado/abaixo');
+ if(region){regions.ait=region;regions.numeroMulta=region;}
+ region=regionForAutoHit(aitOriginariaHit,'Rótulo "Auto de Infração Originária" e valor ao lado/abaixo');
+ if(region)regions.aitOriginaria=region;
+ // Data de Vencimento aparece duas vezes neste modelo (uma perto de "Limite Regulamentado",
+ // outra perto de "Valor Integral"). O campo correto é a segunda, perto de "Valor Integral".
+ const integralWord=words.find(w=>ocrToken(w.text).includes('INTEGRAL'));
+ const vencimentoHits=[];
+ for(let i=0;i<words.length;i++){
+  if(!ocrToken(words[i].text).includes('VENCIMENTO'))continue;
+  vencimentoHits.push(i);
+ }
+ let vencimentoIndex=integralWord
+  ?vencimentoHits.filter(i=>words[i].bbox.y0>=integralWord.bbox.y0-15).sort((a,b)=>a-b)[0]
+  :vencimentoHits[vencimentoHits.length-1];
+ if(vencimentoIndex===undefined)vencimentoIndex=vencimentoHits[vencimentoHits.length-1];
+ if(vencimentoIndex!==undefined){
+  const label=words[vencimentoIndex];
+  const below=words.filter(w=>w!==label&&w.bbox.y0>=label.bbox.y1-2&&w.bbox.y0<=label.bbox.y1+60
+   &&w.bbox.x0<=label.bbox.x0+240&&w.bbox.x1>=label.bbox.x0-40);
+  const r=ocrRegion([label,...below],pageIndex,pageWidth,pageHeight,'Data de Vencimento (abaixo de Valor Integral)');
+  if(r)regions.dataVencimento=r;
+ }
+ // Data da Infração: ancorar em "MUNICIPIO ... INFRACAO" (cabeçalho "Município da
+ // Infração"), não em qualquer "DATA" solto, e pegar a célula Data+Hora que fica à
+ // direita dessa coluna na mesma linha de valores.
+ let municipioInfracaoIndex=-1;
+ for(let i=0;i<words.length;i++){
+  if(!ocrToken(words[i].text).includes('MUNICIPIO'))continue;
+  const after=nextWordsAfter(i,3).map(w=>ocrToken(w.text));
+  if(after.some(t=>t.includes('INFRACAO'))){municipioInfracaoIndex=i;break;}
+ }
+ if(municipioInfracaoIndex>=0){
+  const header=words[municipioInfracaoIndex];
+  const dataWord=words.find(w=>w.bbox.x0>header.bbox.x1&&near(w,header,55)&&/\d{2}[/.]\d{2}[/.]\d{4}/.test(w.text));
+  if(dataWord){
+   const horaWord=words.find(w=>w!==dataWord&&w.bbox.x0>=dataWord.bbox.x0-10&&w.bbox.y0>=dataWord.bbox.y1-2&&w.bbox.y0<=dataWord.bbox.y1+45&&/\d{2}:\d{2}/.test(w.text));
+   const r=ocrRegion([dataWord,...(horaWord?[horaWord]:[])],pageIndex,pageWidth,pageHeight,'Data e Hora da linha de Local / Rodovia');
+   if(r)regions.dataInfracao=r;
+  }
+ }
+ // Local do multa/sinistro: uma única caixa cobrindo Rodovia + Km + Município da
+ // Infração (as 3 informações que o campo junta), sem incluir UF/Código/Data/Hora.
+ const localHeaderIndex=words.findIndex(w=>ocrToken(w.text)==='LOCAL');
+ if(localHeaderIndex>=0&&municipioInfracaoIndex>=0){
+  const header=words[localHeaderIndex];
+  const limitRight=words[municipioInfracaoIndex].bbox.x1+170;
+  const rowWords=words.filter(w=>w.bbox.y0>=header.bbox.y1-2&&w.bbox.y0<=header.bbox.y1+Math.max(45,(header.bbox.y1-header.bbox.y0)*3.2)
+   &&w.bbox.x0>=header.bbox.x0-20&&w.bbox.x1<=limitRight);
+  const r=ocrRegion(rowWords.length?rowWords:[header],pageIndex,pageWidth,pageHeight,'Linha de valores: Rodovia, Km e Município da Infração');
+  if(r)regions.localMulta=r;
  }
  if(!profile)return {profile:'',values,regions};
  // O campo correto é o cabeçalho curto "Cód." seguido de "Infração".
